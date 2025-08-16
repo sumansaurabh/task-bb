@@ -22,12 +22,15 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GHC_TOKEN }}
 
-    - name: Build and push latest
+    - name: Build and push with tags
       uses: docker/build-push-action@v5
       with:
         context: ./backend
         push: true
-        tags: ghcr.io/sumansaurabh/task-bb/backend:latest
+        tags: |
+          ghcr.io/sumansaurabh/task-bb/backend:latest
+          ghcr.io/sumansaurabh/task-bb/backend:${{ github.sha }}
+          # ghcr.io/sumansaurabh/task-bb/backend:${{ github.run_number }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
      
@@ -47,55 +50,101 @@ jobs:
         
         echo "✅ Successfully obtained ArgoCD token"
         echo "argocd_token=${ARGOCD_TOKEN}" >> $GITHUB_OUTPUT
-    - name: Trigger ArgoCD rolling restart
+    - name: Deploy via ArgoCD API
       run: |
-        echo "Triggering ArgoCD to restart deployment..."
+        echo "🚀 Deploying via ArgoCD API using manifest file..."
         
-        # Method 1: Force ArgoCD sync with refresh
-        curl -X POST \
-          "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app-api/refresh" \
-          -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}"
+        # Get the short commit SHA as the tag
+        LATEST_TAG="${{ github.sha }}"
+        SHORT_TAG=$(echo "$LATEST_TAG" | cut -c1-7)
         
-        sleep 5
+        echo "📋 Using image tag: $SHORT_TAG"
         
-        curl -X POST \
-          "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app-api/sync" \
-          -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}" \
-          -H "Content-Type: application/json" \
-          -d '{
-            "revision": "main",
-            "prune": true,
-            "dryRun": false
-          }'
-        
-        # Method 2: Force rolling restart via Kubernetes API
-        echo "Forcing rolling restart to pull latest image..."
-        
-        # Add restart annotation to force pod recreation
-        RESTART_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        
-        curl -X PATCH \
-          "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app-api" \
-          -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}" \
-          -H "Content-Type: application/json" \
-          -d '{
-            "spec": {
-              "source": {
-                "kustomize": {
-                  "patchesStrategicMerge": [
-                    "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: nodejs-app\nspec:\n  template:\n    metadata:\n      annotations:\n        kubectl.kubernetes.io/restartedAt: \"'$RESTART_TIME'\""
-                  ]
-                }
-              }
+        # Extract only the Deployment resource from the manifest and update image tag
+        DEPLOYMENT_MANIFEST=$(awk '
+        BEGIN { in_deployment = 0; deployment_content = "" }
+        /^---$/ { 
+            if (in_deployment) {
+                print deployment_content
+                exit
             }
-          }'
+            in_deployment = 0
+            deployment_content = ""
+            next 
+        }
+        /^apiVersion: apps\/v1$/ { 
+            deployment_content = $0 "\n"
+            getline
+            if ($0 ~ /^kind: Deployment$/) {
+                deployment_content = deployment_content $0 "\n"
+                in_deployment = 1
+            }
+            next
+        }
+        in_deployment { 
+            if ($0 ~ /ghcr\.io\/sumansaurabh\/task-bb\/backend:latest/) {
+                gsub(/:latest/, ":" ENVIRON["SHORT_TAG"])
+            }
+            deployment_content = deployment_content $0 "\n"
+        }
+        END {
+            if (in_deployment) {
+                print deployment_content
+            }
+        }' SHORT_TAG="$SHORT_TAG" k8s-manifests/app/deployment.yaml)
+        
+        if [ -z "$DEPLOYMENT_MANIFEST" ]; then
+            echo "❌ Could not extract Deployment from manifest file"
+            exit 1
+        fi
+        
+        echo "📝 Updated manifest with image: ghcr.io/sumansaurabh/task-bb/backend:$SHORT_TAG"
+        
+        # Escape manifest for JSON
+        ESCAPED_MANIFEST=$(echo "$DEPLOYMENT_MANIFEST" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+        
+        # Deploy using ArgoCD API
+        echo "🌐 Calling ArgoCD API..."
+        
+        RESPONSE=$(curl -s -w "\n%{http_code}" \
+          --location '${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app-api/resource' \
+          --header 'Content-Type: application/json' \
+          --header 'Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}' \
+          --data "{
+            \"manifest\": \"$ESCAPED_MANIFEST\",
+            \"group\": \"apps\",
+            \"version\": \"v1\",
+            \"kind\": \"Deployment\",
+            \"name\": \"nodejs-app\",
+            \"namespace\": \"default\"
+          }")
+        
+        # Check response
+        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+        RESPONSE_BODY=$(echo "$RESPONSE" | head -n -1)
+        
+        if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo "✅ Deployment successful!"
+            echo "🎯 Applied image: ghcr.io/sumansaurabh/task-bb/backend:$SHORT_TAG"
+        else
+            echo "❌ Deployment failed (HTTP $HTTP_CODE)"
+            echo "Response: $RESPONSE_BODY"
+            exit 1
+        fi
 
     - name: Create deployment summary
       run: |
-        echo "## 🚀 Latest Image Deployment" >> $GITHUB_STEP_SUMMARY
+        echo "## 🚀 ArgoCD API Deployment" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Image:** \`ghcr.io/sumansaurabh/task-bb/backend:latest\`" >> $GITHUB_STEP_SUMMARY
-        echo "**Strategy:** Force pull latest with rolling restart" >> $GITHUB_STEP_SUMMARY
+        echo "**Deployment Method:** ArgoCD API with manifest file" >> $GITHUB_STEP_SUMMARY
+        echo "**Manifest Source:** \`k8s-manifests/app/deployment.yaml\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Image Applied:** \`ghcr.io/sumansaurabh/task-bb/backend:${GITHUB_SHA:0:7}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Images pushed:**" >> $GITHUB_STEP_SUMMARY
+        echo "- \`ghcr.io/sumansaurabh/task-bb/backend:latest\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`ghcr.io/sumansaurabh/task-bb/backend:${GITHUB_SHA:0:7}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Commit:** \`${GITHUB_SHA:0:7}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Build:** \`${GITHUB_RUN_NUMBER}\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "ArgoCD will force restart all pods to pull the latest image." >> $GITHUB_STEP_SUMMARY
+        echo "Deployment applied using ArgoCD API by reading the local manifest file and replacing :latest tag." >> $GITHUB_STEP_SUMMARY
