@@ -66,7 +66,10 @@ resource "google_compute_instance" "instance-20250816-053549" {
 }
 
 provider "google" {
-  credentials = file("./terraform-key.json")  # Path to your service account key file
+  # Use Application Default Credentials (ADC) instead of service account key file
+  # Run: gcloud auth application-default login
+  project = "penify-prod"
+  region  = "us-central1"
 }
 
 
