@@ -23,23 +23,36 @@ app.get('/api/users', (req, res) => {
 
 // When LRO starts
 app.post('/start-lro', async (req, res) => {
-    // Mark this pod as having active LRO
-    await markPodAsLRO();
-    
-    // Start your long-running operation
-    // startLongRunningOperation();
-    
-    res.json({ status: 'LRO started' });
+    try {
+        // Mark this pod as having active LRO
+        await markPodAsLRO();
+        
+        // Start your long-running operation
+        // startLongRunningOperation();
+        
+        res.json({ status: 'LRO started' });
+    } catch (error) {
+        console.error('Error in /start-lro:', error);
+        res.status(500).json({ 
+            error: 'Failed to start LRO', 
+            details: error.message 
+        });
+    }
 });
 
 app.post('/end-lro', async (req, res) => {
-    // Mark this pod as having active LRO
-    await unmarkPodAsLRO();
-    
-    // Start your long-running operation
-    // startLongRunningOperation();
-    
-    res.json({ status: 'LRO started' });
+    try {
+        // Unmark this pod as having active LRO
+        await unmarkPodAsLRO();
+        
+        res.json({ status: 'LRO ended' });
+    } catch (error) {
+        console.error('Error in /end-lro:', error);
+        res.status(500).json({ 
+            error: 'Failed to end LRO', 
+            details: error.message 
+        });
+    }
 });
 
 app.get('/lro-status', async (req, res) => {
@@ -92,6 +105,73 @@ async function markPodAsLRO() {
         }
         
         // Create patch object
+        const patch = [
+            {
+                op: 'add',
+                path: '/metadata/annotations/app.company.com~1lro-active',
+                value: 'true'
+            },
+            {
+                op: 'add',
+                path: '/metadata/annotations/app.company.com~1lro-started',
+                value: new Date().toISOString()
+            }
+        ];
+        
+        console.log('Debug - patch object:', JSON.stringify(patch, null, 2));
+        
+        // Use JSON Patch format
+        const options = {
+            headers: {
+                'Content-Type': 'application/json-patch+json'
+            }
+        };
+        
+        // Call with correct positional parameters
+        const response = await k8sApi.patchNamespacedPod(
+            podName,        // name (string)
+            namespace,      // namespace (string)
+            patch,          // body (patch object)
+            undefined,      // pretty
+            undefined,      // dryRun
+            undefined,      // fieldManager
+            undefined,      // fieldValidation
+            undefined,      // force
+            options         // options with headers
+        );
+        
+        console.log(`Successfully marked pod ${podName} as LRO active`);
+        return response;
+    } catch (error) {
+        console.error('Error marking pod as LRO:', error.message);
+        
+        // If JSON Patch fails, try strategic merge patch
+        if (error.response?.statusCode === 415 || error.message.includes('Unsupported Media Type')) {
+            console.log('JSON Patch failed, trying strategic merge patch...');
+            return await markPodAsLROWithMergePatch();
+        }
+        
+        throw error;
+    }
+}
+
+async function markPodAsLROWithMergePatch() {
+    try {
+        const k8s = require('@kubernetes/client-node');
+        const kc = new k8s.KubeConfig();
+        kc.loadFromCluster();
+        const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
+        
+        const podName = process.env.POD_NAME || process.env.HOSTNAME;
+        const namespace = process.env.NAMESPACE || 'default';
+        
+        console.log(`Attempting strategic merge patch for pod ${podName}`);
+        
+        // First, get the current pod to check if annotations exist
+        const currentPod = await k8sApi.readNamespacedPod(podName, namespace);
+        const hasAnnotations = currentPod.body.metadata.annotations !== undefined;
+        
+        // Create merge patch object
         const patch = {
             metadata: {
                 annotations: {
@@ -101,45 +181,35 @@ async function markPodAsLRO() {
             }
         };
         
-        console.log('Debug - patch object:', JSON.stringify(patch, null, 2));
-        
-        // Use the correct API call - try different approaches based on version
-        let response;
-        try {
-            // Method 1: Object-based parameters (newer versions)
-            response = await k8sApi.patchNamespacedPod({
-                name: podName,
-                namespace: namespace,
-                body: patch,
-                headers: { 
-                    'Content-Type': 'application/merge-patch+json' 
-                }
-            });
-        } catch (firstError) {
-            console.log('Object-based call failed, trying positional parameters...');
-            // Method 2: Positional parameters (older versions or alternative signature)
-            response = await k8sApi.patchNamespacedPod(
-                podName,        // name
-                namespace,      // namespace
-                patch,          // body
-                undefined,      // pretty
-                undefined,      // dryRun
-                undefined,      // fieldManager
-                undefined,      // fieldValidation
-                undefined,      // force
-                {
-                    headers: { 
-                        'Content-Type': 'application/merge-patch+json' 
-                    }
-                }
-            );
+        // If no annotations exist, we need to ensure they're created
+        if (!hasAnnotations) {
+            patch.metadata.annotations = {
+                ...patch.metadata.annotations
+            };
         }
         
-        console.log(`Successfully marked pod ${podName} as LRO active`);
+        const options = {
+            headers: {
+                'Content-Type': 'application/strategic-merge-patch+json'
+            }
+        };
+        
+        const response = await k8sApi.patchNamespacedPod(
+            podName,
+            namespace,
+            patch,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            options
+        );
+        
+        console.log(`Successfully marked pod ${podName} as LRO active using merge patch`);
         return response;
     } catch (error) {
-        console.error('Error marking pod as LRO:', error.message);
-        console.error('Full error:', error);
+        console.error('Strategic merge patch also failed:', error.message);
         throw error;
     }
 }
@@ -164,56 +234,90 @@ async function unmarkPodAsLRO() {
             throw new Error('Namespace is null or undefined.');
         }
         
-        // Create patch object to remove annotation
-        const patch = {
-            metadata: {
-                annotations: {
-                    'app.company.com/lro-active': null  // Remove annotation
-                }
+        // Use JSON Patch to remove the annotation
+        const patch = [
+            {
+                op: 'remove',
+                path: '/metadata/annotations/app.company.com~1lro-active'
+            }
+        ];
+        
+        const options = {
+            headers: {
+                'Content-Type': 'application/json-patch+json'
             }
         };
         
-        // Use the correct API call - try different approaches based on version
-        let response;
-        try {
-            // Method 1: Object-based parameters (newer versions)
-            response = await k8sApi.patchNamespacedPod({
-                name: podName,
-                namespace: namespace,
-                body: patch,
-                headers: { 
-                    'Content-Type': 'application/merge-patch+json' 
-                }
-            });
-        } catch (firstError) {
-            console.log('Object-based call failed, trying positional parameters...');
-            // Method 2: Positional parameters (older versions or alternative signature)
-            response = await k8sApi.patchNamespacedPod(
-                podName,        // name
-                namespace,      // namespace
-                patch,          // body
-                undefined,      // pretty
-                undefined,      // dryRun
-                undefined,      // fieldManager
-                undefined,      // fieldValidation
-                undefined,      // force
-                {
-                    headers: { 
-                        'Content-Type': 'application/merge-patch+json' 
-                    }
-                }
-            );
-        }
+        const response = await k8sApi.patchNamespacedPod(
+            podName,
+            namespace,
+            patch,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            options
+        );
         
         console.log(`Successfully unmarked pod ${podName} as LRO active`);
         return response;
     } catch (error) {
         console.error('Error unmarking pod as LRO:', error.message);
-        console.error('Full error:', error);
+        
+        // If removal fails (e.g., annotation doesn't exist), try setting to false
+        if (error.response?.statusCode === 422) {
+            console.log('Annotation might not exist, trying to set to false...');
+            return await unmarkPodAsLROWithMergePatch();
+        }
+        
         throw error;
     }
 }
 
+async function unmarkPodAsLROWithMergePatch() {
+    try {
+        const k8s = require('@kubernetes/client-node');
+        const kc = new k8s.KubeConfig();
+        kc.loadFromCluster();
+        const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
+        
+        const podName = process.env.POD_NAME || process.env.HOSTNAME;
+        const namespace = process.env.NAMESPACE || 'default';
+        
+        const patch = {
+            metadata: {
+                annotations: {
+                    'app.company.com/lro-active': 'false'
+                }
+            }
+        };
+        
+        const options = {
+            headers: {
+                'Content-Type': 'application/strategic-merge-patch+json'
+            }
+        };
+        
+        const response = await k8sApi.patchNamespacedPod(
+            podName,
+            namespace,
+            patch,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            options
+        );
+        
+        console.log(`Successfully set pod ${podName} LRO active to false`);
+        return response;
+    } catch (error) {
+        console.error('Strategic merge patch for unmarking also failed:', error.message);
+        throw error;
+    }
+}
 
 // Start server
 app.listen(PORT, () => {
