@@ -25,18 +25,6 @@ spec:
       containers:
       - name: nodejs-app
         image: ghcr.io/sumansaurabh/task-bb/backend:main-48f891c
-        lifecycle:
-          preStop:
-            exec:
-              command: ["/bin/bash", "-c", "
-                # Check if LRO is active
-                if [ -f /tmp/lro-active ]; then
-                  echo 'LRO active, waiting for completion...';
-                  while [ -f /tmp/lro-active ]; do
-                    sleep 5;
-                  done;
-                fi;
-                echo 'Safe to terminate';"]
         ports:
         - containerPort: 3000
         env:
@@ -59,7 +47,7 @@ spec:
             cpu: "300m"
         livenessProbe:
           httpGet:
-            path: /health
+            path: /api/health
             port: 3000
           initialDelaySeconds: 30
           periodSeconds: 10
@@ -67,18 +55,31 @@ spec:
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /health
+            path: /api/health
             port: 3000
           initialDelaySeconds: 10
           periodSeconds: 5
           timeoutSeconds: 3
           successThreshold: 1
           failureThreshold: 3
-        # Graceful shutdown
+        # Graceful shutdown with LRO awareness
         lifecycle:
           preStop:
             exec:
-              command: ["/bin/sleep", "15"]
+              command: ["/bin/bash", "-c", "
+                # Check if LRO is active via annotation
+                POD_NAME=$HOSTNAME;
+                NAMESPACE=${NAMESPACE:-default};
+                LRO_ACTIVE=$(kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.metadata.annotations.app\\.company\\.com/lro-active}' 2>/dev/null || echo '');
+                if [ '$LRO_ACTIVE' = 'true' ]; then
+                  echo 'LRO active, waiting for completion...';
+                  while [ '$LRO_ACTIVE' = 'true' ]; do
+                    sleep 5;
+                    LRO_ACTIVE=$(kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.metadata.annotations.app\\.company\\.com/lro-active}' 2>/dev/null || echo '');
+                  done;
+                fi;
+                echo 'Safe to terminate - sleeping 15s for graceful shutdown';
+                sleep 15;"]
       # Ensure pods are distributed across nodes if you have multiple
       affinity:
         podAntiAffinity:
