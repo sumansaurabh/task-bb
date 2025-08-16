@@ -1,0 +1,55 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: nodejs-app-streaming
+  namespace: default
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    # Route for streaming endpoints
+    - match: Host(`blackbox.bareflux.co`) && (Path(`/start-lro`) || Path(`/stream-test`))
+      kind: Rule
+      services:
+        - name: nodejs-app-service
+          port: 80
+      middlewares:
+        - name: streaming-headers
+        - name: streaming-buffering
+    # Default route for other endpoints
+    - match: Host(`blackbox.bareflux.co`)
+      kind: Rule
+      services:
+        - name: nodejs-app-service
+          port: 80
+  tls:
+    secretName: bareflux-co-tls
+---
+# Redirect HTTP to HTTPS
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: nodejs-app-redirect
+  namespace: default
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`blackbox.bareflux.co`)
+      kind: Rule
+      services:
+        - name: nodejs-app-service
+          port: 80
+      middlewares:
+        - name: https-redirect
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: https-redirect
+  namespace: default
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true

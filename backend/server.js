@@ -40,11 +40,131 @@ app.get('/api/users', (req, res) => {
     ]);
 });
 
-// When LRO starts
+// Test page for streaming
+app.get('/stream-test', (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>LRO Streaming Test</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                #output { border: 1px solid #ccc; padding: 10px; height: 400px; overflow-y: scroll; }
+                button { padding: 10px 20px; margin: 10px; }
+                .progress { background: #f0f0f0; padding: 5px; margin: 5px 0; }
+            </style>
+        </head>
+        <body>
+            <h1>LRO Streaming Test</h1>
+            <button onclick="startStream()">Start LRO Stream</button>
+            <button onclick="clearOutput()">Clear Output</button>
+            <div id="output"></div>
+
+            <script>
+                let eventSource;
+
+                function startStream() {
+                    if (eventSource) {
+                        eventSource.close();
+                    }
+
+                    eventSource = new EventSource('/start-lro', {
+                        method: 'POST'
+                    });
+
+                    eventSource.onmessage = function(event) {
+                        const data = JSON.parse(event.data);
+                        const output = document.getElementById('output');
+                        const div = document.createElement('div');
+                        div.className = 'progress';
+                        
+                        if (data.completed) {
+                            div.innerHTML = '<strong>' + data.message + ' - Final count: ' + data.count + '</strong>';
+                            eventSource.close();
+                        } else if (data.count === 0) {
+                            div.innerHTML = '<strong>' + data.message + '</strong>';
+                        } else {
+                            div.innerHTML = 'Count: ' + data.count + ' | Progress: ' + data.progress + '% | Time: ' + new Date(data.timestamp).toLocaleTimeString();
+                        }
+                        
+                        output.appendChild(div);
+                        output.scrollTop = output.scrollHeight;
+                    };
+
+                    eventSource.onerror = function(event) {
+                        console.error('EventSource failed:', event);
+                        const output = document.getElementById('output');
+                        const div = document.createElement('div');
+                        div.innerHTML = '<span style="color: red;">Connection error or completed</span>';
+                        output.appendChild(div);
+                    };
+                }
+
+                function clearOutput() {
+                    document.getElementById('output').innerHTML = '';
+                }
+            </script>
+        </body>
+        </html>
+    `);
+});
+
+// When LRO starts - Streaming version
 app.post('/start-lro', async (req, res) => {
     try {
         await markPodAsLRO();
-        res.json({ status: 'LRO started' });
+        
+        // Set headers for Server-Sent Events
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Cache-Control'
+        });
+
+        let counter = 1;
+        const maxCount = 10000;
+
+        // Send initial message
+        res.write(`data: ${JSON.stringify({ message: 'LRO started', count: 0 })}\n\n`);
+
+        // Create interval to send numbers 1 to 10000 every second
+        const interval = setInterval(() => {
+            if (counter <= maxCount) {
+                const data = {
+                    count: counter,
+                    timestamp: new Date().toISOString(),
+                    progress: (counter / maxCount * 100).toFixed(2)
+                };
+                
+                res.write(`data: ${JSON.stringify(data)}\n\n`);
+                console.log(`Streaming count: ${counter}`);
+                counter++;
+            } else {
+                // Send completion message
+                res.write(`data: ${JSON.stringify({ 
+                    message: 'LRO completed', 
+                    count: maxCount, 
+                    completed: true 
+                })}\n\n`);
+                
+                clearInterval(interval);
+                res.end();
+            }
+        }, 1000); // Send every second
+
+        // Handle client disconnect
+        req.on('close', () => {
+            console.log('Client disconnected, stopping stream');
+            clearInterval(interval);
+        });
+
+        req.on('aborted', () => {
+            console.log('Request aborted, stopping stream');
+            clearInterval(interval);
+        });
+
     } catch (error) {
         console.error('Error in /start-lro:', error);
         res.status(500).json({ 

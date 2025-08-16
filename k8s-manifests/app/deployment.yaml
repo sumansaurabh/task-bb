@@ -132,6 +132,9 @@ metadata:
   name: nodejs-app-service
   labels:
     app: nodejs-app
+  annotations:
+    # Annotations for better streaming support
+    service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "3600"
 spec:
   selector:
     app: nodejs-app
@@ -140,3 +143,8 @@ spec:
     port: 80
     targetPort: 3000
   type: ClusterIP
+  # Session affinity to keep streaming connections to same pod
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600  # 1 hour timeout for streaming sessions

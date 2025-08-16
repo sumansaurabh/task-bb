@@ -1,0 +1,27 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: streaming-headers
+  namespace: default
+spec:
+  headers:
+    customRequestHeaders:
+      Cache-Control: "no-cache"
+      Connection: "keep-alive"
+    customResponseHeaders:
+      Cache-Control: "no-cache"
+      Connection: "keep-alive"
+      X-Accel-Buffering: "no"
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: streaming-buffering
+  namespace: default
+spec:
+  buffering:
+    maxRequestBodyBytes: 0
+    maxResponseBodyBytes: 0
+    memRequestBodyBytes: 0
+    memResponseBodyBytes: 0
+    retryExpression: ""
