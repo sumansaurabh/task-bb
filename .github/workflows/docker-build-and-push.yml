@@ -59,43 +59,8 @@ jobs:
         
         echo "📋 Using image tag: $SHORT_TAG"
         
-        # Extract only the Deployment resource from the manifest and update image tag
-        DEPLOYMENT_MANIFEST=$(awk '
-        BEGIN { in_deployment = 0; deployment_content = "" }
-        /^---$/ { 
-            if (in_deployment) {
-                print deployment_content
-                exit
-            }
-            in_deployment = 0
-            deployment_content = ""
-            next 
-        }
-        /^apiVersion: apps\/v1$/ { 
-            deployment_content = $0 "\n"
-            getline
-            if ($0 ~ /^kind: Deployment$/) {
-                deployment_content = deployment_content $0 "\n"
-                in_deployment = 1
-            }
-            next
-        }
-        in_deployment { 
-            if ($0 ~ /ghcr\.io\/sumansaurabh\/task-bb\/backend:latest/) {
-                gsub(/:latest/, ":" ENVIRON["SHORT_TAG"])
-            }
-            deployment_content = deployment_content $0 "\n"
-        }
-        END {
-            if (in_deployment) {
-                print deployment_content
-            }
-        }' SHORT_TAG="$SHORT_TAG" k8s-manifests/app/deployment.yaml)
-        
-        if [ -z "$DEPLOYMENT_MANIFEST" ]; then
-            echo "❌ Could not extract Deployment from manifest file"
-            exit 1
-        fi
+        # Read manifest file and replace :latest with current tag
+        DEPLOYMENT_MANIFEST=$(cat k8s-manifests/app/deployment.yaml | sed "s/:latest/:$SHORT_TAG/g")
         
         echo "📝 Updated manifest with image: ghcr.io/sumansaurabh/task-bb/backend:$SHORT_TAG"
         
