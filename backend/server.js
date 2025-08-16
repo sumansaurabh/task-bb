@@ -67,6 +67,13 @@ app.get('/lro-status', async (req, res) => {
     }
 });
 
+/**
+ * Marks a Kubernetes pod as Long-Running Operation (LRO) active by updating its annotations.
+ *
+ * This function retrieves the pod name and namespace from environment variables, then updates the pod's metadata
+ * to include annotations indicating that it is an LRO and when it was started. It handles potential errors
+ * during the update process and logs appropriate messages to the console.
+ */
 async function markPodAsLRO() {
     try {
         const k8s = require('@kubernetes/client-node');
@@ -102,6 +109,13 @@ async function markPodAsLRO() {
 }
 
 // When LRO completes
+/**
+ * Unmarks a Kubernetes pod as being actively involved in a Long Running Operation (LRO).
+ *
+ * This function connects to the Kubernetes cluster, retrieves the pod name and namespace from environment variables,
+ * and patches the pod's metadata to remove the 'app.company.com/lro-active' annotation. It logs the operation
+ * status to the console and handles any errors that occur during the process.
+ */
 async function unmarkPodAsLRO() {
     try {
         const k8s = require('@kubernetes/client-node');
