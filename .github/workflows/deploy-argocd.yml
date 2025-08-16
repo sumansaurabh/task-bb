@@ -1,165 +1,196 @@
-name: Deploy via ArgoCD API
+# name: Deploy via ArgoCD API
 
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-    inputs:
-      image_tag:
-        description: 'Image tag to deploy'
-        required: true
-        default: 'main-latest'
+# on:
+#   push:
+#     branches: [main]
+#   workflow_dispatch:
+#     inputs:
+#       image_tag:
+#         description: 'Image tag to deploy'
+#         required: true
+#         default: 'main-latest'
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/backend
+# env:
+#   REGISTRY: ghcr.io
+#   IMAGE_NAME: ${{ github.repository }}/backend
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+#     steps:
+#     - name: Checkout code
+#       uses: actions/checkout@v4
     
-    - name: Generate image tag
-      id: image-tag
-      run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          IMAGE_TAG="${{ github.event.inputs.image_tag }}"
-        else
-          BRANCH=${GITHUB_REF#refs/heads/}
-          SHORT_SHA=${GITHUB_SHA:0:7}
-          IMAGE_TAG="${BRANCH}-${SHORT_SHA}"
-        fi
-        echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-        echo "Deploying image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
+#     - name: Generate image tag
+#       id: image-tag
+#       run: |
+#         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+#           IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+#         else
+#           BRANCH=${GITHUB_REF#refs/heads/}
+#           SHORT_SHA=${GITHUB_SHA:0:7}
+#           IMAGE_TAG="${BRANCH}-${SHORT_SHA}"
+#         fi
+#         echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+#         echo "Deploying image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
 
-    - name: Update ArgoCD Application Image
-      run: |
-        # Update the application spec with new image
-        curl -k -X PATCH \
-          "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app" \
-          -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}" \
-          -H "Content-Type: application/json" \
-          -d '{
-            "spec": {
-              "source": {
-                "kustomize": {
-                  "images": ["${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.image_tag }}"]
-                }
-              }
-            }
-          }'
+#     - name: Get ArgoCD Token
+#       id: argocd-auth
+#       run: |
+#         # Fetch ArgoCD token using admin credentials
+#         ARGOCD_TOKEN=$(curl -k -X POST ${{ secrets.ARGOCD_SERVER }}/api/v1/session \
+#           -d '{"username":"admin","password":"${{ secrets.ARGOCD_PASSWORD }}"}' \
+#           -H "Content-Type: application/json" | jq -r .token)
+        
+#         if [ "$ARGOCD_TOKEN" = "null" ] || [ -z "$ARGOCD_TOKEN" ]; then
+#           echo "❌ Failed to get ArgoCD token"
+#           exit 1
+#         fi
+        
+#         echo "✅ Successfully obtained ArgoCD token"
+#         echo "argocd_token=${ARGOCD_TOKEN}" >> $GITHUB_OUTPUT
 
-    - name: Trigger ArgoCD Sync
-      run: |
-        # Trigger deployment sync
-        SYNC_RESPONSE=$(curl -k -X POST \
-          "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app/sync" \
-          -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}" \
-          -H "Content-Type: application/json" \
-          -d '{
-            "revision": "main",
-            "prune": true,
-            "dryRun": false,
-            "syncOptions": ["CreateNamespace=true"]
-          }')
-        
-        echo "Sync triggered: $SYNC_RESPONSE"
-        
-        # Extract operation name for tracking
-        OPERATION_NAME=$(echo $SYNC_RESPONSE | jq -r '.metadata.name // "unknown"')
-        echo "operation_name=${OPERATION_NAME}" >> $GITHUB_ENV
+#     - name: Update ArgoCD Application Image
+#       run: |
+#         # Update the application spec with new image
+#         curl -k -X PATCH \
+#           "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app" \
+#           -H "Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}" \
+#           -H "Content-Type: application/json" \
+#           -d '{
+#             "spec": {
+#               "source": {
+#                 "kustomize": {
+#                   "images": ["${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.image_tag }}"]
+#                 }
+#               }
+#             }
+#           }'
 
-    - name: Wait for deployment completion
-      run: |
-        echo "Waiting for deployment to complete..."
+#     - name: Trigger ArgoCD Sync
+#       run: |
+#         # Trigger deployment sync
+#         SYNC_RESPONSE=$(curl -k -X POST \
+#           "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app/sync" \
+#           -H "Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}" \
+#           -H "Content-Type: application/json" \
+#           -d '{
+#             "revision": "main",
+#             "prune": true,
+#             "dryRun": false
+#           }')
         
-        # Poll deployment status
-        for i in {1..60}; do  # Wait up to 10 minutes
-          STATUS_RESPONSE=$(curl -k -s \
-            "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app" \
-            -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}")
+#         echo "Sync triggered: $SYNC_RESPONSE"
+        
+#         # Extract operation name for tracking
+#         OPERATION_NAME=$(echo $SYNC_RESPONSE | jq -r '.metadata.name // "unknown"')
+#         echo "operation_name=${OPERATION_NAME}" >> $GITHUB_ENV
+
+#     - name: Wait for deployment completion
+#       run: |
+#         echo "Waiting for deployment to complete..."
+        
+#         # Poll deployment status
+#         for i in {1..60}; do  # Wait up to 10 minutes
+#           STATUS_RESPONSE=$(curl -k -s \
+#             "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app" \
+#             -H "Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}")
           
-          SYNC_STATUS=$(echo $STATUS_RESPONSE | jq -r '.status.sync.status')
-          HEALTH_STATUS=$(echo $STATUS_RESPONSE | jq -r '.status.health.status')
-          OPERATION_PHASE=$(echo $STATUS_RESPONSE | jq -r '.status.operationState.phase // "Unknown"')
+#           SYNC_STATUS=$(echo $STATUS_RESPONSE | jq -r '.status.sync.status')
+#           HEALTH_STATUS=$(echo $STATUS_RESPONSE | jq -r '.status.health.status')
+#           OPERATION_PHASE=$(echo $STATUS_RESPONSE | jq -r '.status.operationState.phase // "Unknown"')
           
-          echo "Sync: $SYNC_STATUS, Health: $HEALTH_STATUS, Operation: $OPERATION_PHASE"
+#           echo "Sync: $SYNC_STATUS, Health: $HEALTH_STATUS, Operation: $OPERATION_PHASE"
           
-          if [ "$OPERATION_PHASE" = "Succeeded" ] && [ "$HEALTH_STATUS" = "Healthy" ]; then
-            echo "✅ Deployment completed successfully!"
-            break
-          elif [ "$OPERATION_PHASE" = "Failed" ] || [ "$OPERATION_PHASE" = "Error" ]; then
-            echo "❌ Deployment failed!"
-            exit 1
-          fi
+#           if [ "$OPERATION_PHASE" = "Succeeded" ] && [ "$HEALTH_STATUS" = "Healthy" ]; then
+#             echo "✅ Deployment completed successfully!"
+#             break
+#           elif [ "$OPERATION_PHASE" = "Failed" ] || [ "$OPERATION_PHASE" = "Error" ]; then
+#             echo "❌ Deployment failed!"
+#             exit 1
+#           fi
           
-          sleep 10
-        done
+#           sleep 10
+#         done
         
-        # Final status check
-        if [ "$OPERATION_PHASE" != "Succeeded" ]; then
-          echo "❌ Deployment timed out or failed"
-          exit 1
-        fi
+#         # Final status check
+#         if [ "$OPERATION_PHASE" != "Succeeded" ]; then
+#           echo "❌ Deployment timed out or failed"
+#           exit 1
+#         fi
 
-    - name: Get deployment details
-      run: |
-        # Get current application status
-        curl -k -s \
-          "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app" \
-          -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}" | \
-          jq '{
-            name: .metadata.name,
-            image: .spec.source.kustomize.images[0],
-            sync_status: .status.sync.status,
-            health_status: .status.health.status,
-            last_sync: .status.operationState.finishedAt,
-            revision: .status.sync.revision
-          }'
+#     - name: Get deployment details
+#       run: |
+#         # Get current application status
+#         curl -k -s \
+#           "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app" \
+#           -H "Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}" | \
+#           jq '{
+#             name: .metadata.name,
+#             image: .spec.source.kustomize.images[0],
+#             sync_status: .status.sync.status,
+#             health_status: .status.health.status,
+#             last_sync: .status.operationState.finishedAt,
+#             revision: .status.sync.revision
+#           }'
 
-    - name: Create deployment summary
-      run: |
-        echo "## 🚀 ArgoCD Deployment Summary" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Image:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "**Status:** ✅ Deployed Successfully" >> $GITHUB_STEP_SUMMARY
-        echo "**ArgoCD App:** \`nodejs-app\`" >> $GITHUB_STEP_SUMMARY
-        echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "View in ArgoCD: [${{ secrets.ARGOCD_SERVER }}/applications/nodejs-app](${{ secrets.ARGOCD_SERVER }}/applications/nodejs-app)" >> $GITHUB_STEP_SUMMARY
+#     - name: Create deployment summary
+#       run: |
+#         echo "## 🚀 ArgoCD Deployment Summary" >> $GITHUB_STEP_SUMMARY
+#         echo "" >> $GITHUB_STEP_SUMMARY
+#         echo "**Image:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+#         echo "**Status:** ✅ Deployed Successfully" >> $GITHUB_STEP_SUMMARY
+#         echo "**ArgoCD App:** \`nodejs-app\`" >> $GITHUB_STEP_SUMMARY
+#         echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+#         echo "" >> $GITHUB_STEP_SUMMARY
+#         echo "View in ArgoCD: [${{ secrets.ARGOCD_SERVER }}/applications/nodejs-app](${{ secrets.ARGOCD_SERVER }}/applications/nodejs-app)" >> $GITHUB_STEP_SUMMARY
 
-  rollback:
-    runs-on: ubuntu-latest
-    if: failure()
-    needs: deploy
-    steps:
-    - name: Rollback deployment
-      run: |
-        echo "🔄 Rolling back deployment..."
+#   rollback:
+#     runs-on: ubuntu-latest
+#     if: failure()
+#     needs: deploy
+#     steps:
+#     - name: Get ArgoCD Token for Rollback
+#       id: argocd-auth-rollback
+#       run: |
+#         # Fetch ArgoCD token using admin credentials
+#         ARGOCD_TOKEN=$(curl -k -X POST ${{ secrets.ARGOCD_SERVER }}/api/v1/session \
+#           -d '{"username":"admin","password":"${{ secrets.ARGOCD_PASSWORD }}"}' \
+#           -H "Content-Type: application/json" | jq -r .token)
         
-        # Get previous revision
-        HISTORY_RESPONSE=$(curl -k -s \
-          "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app/revisions" \
-          -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}")
+#         if [ "$ARGOCD_TOKEN" = "null" ] || [ -z "$ARGOCD_TOKEN" ]; then
+#           echo "❌ Failed to get ArgoCD token for rollback"
+#           exit 1
+#         fi
         
-        PREVIOUS_REVISION=$(echo $HISTORY_RESPONSE | jq -r '.[1].id // "1"')
+#         echo "✅ Successfully obtained ArgoCD token for rollback"
+#         echo "argocd_token=${ARGOCD_TOKEN}" >> $GITHUB_OUTPUT
         
-        # Trigger rollback
-        curl -k -X POST \
-          "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app/rollback" \
-          -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}" \
-          -H "Content-Type: application/json" \
-          -d "{\"id\": \"$PREVIOUS_REVISION\"}"
+#     - name: Rollback deployment
+#       run: |
+#         echo "🔄 Rolling back deployment..."
         
-        echo "Rollback to revision $PREVIOUS_REVISION initiated"
+#         # Get previous revision
+#         HISTORY_RESPONSE=$(curl -k -s \
+#           "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app/revisions" \
+#           -H "Authorization: Bearer ${{ steps.argocd-auth-rollback.outputs.argocd_token }}")
+        
+#         PREVIOUS_REVISION=$(echo $HISTORY_RESPONSE | jq -r '.[1].id // "1"')
+        
+#         # Trigger rollback
+#         curl -k -X POST \
+#           "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app/rollback" \
+#           -H "Authorization: Bearer ${{ steps.argocd-auth-rollback.outputs.argocd_token }}" \
+#           -H "Content-Type: application/json" \
+#           -d "{\"id\": \"$PREVIOUS_REVISION\"}"
+        
+#         echo "Rollback to revision $PREVIOUS_REVISION initiated"
 
-    - name: Create rollback summary
-      run: |
-        echo "## 🔄 Deployment Rollback" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Status:** Deployment failed - automatic rollback initiated" >> $GITHUB_STEP_SUMMARY
-        echo "**ArgoCD App:** \`nodejs-app\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "Check ArgoCD for rollback status: [${{ secrets.ARGOCD_SERVER }}/applications/nodejs-app](${{ secrets.ARGOCD_SERVER }}/applications/nodejs-app)" >> $GITHUB_STEP_SUMMARY
+#     - name: Create rollback summary
+#       run: |
+#         echo "## 🔄 Deployment Rollback" >> $GITHUB_STEP_SUMMARY
+#         echo "" >> $GITHUB_STEP_SUMMARY
+#         echo "**Status:** Deployment failed - automatic rollback initiated" >> $GITHUB_STEP_SUMMARY
+#         echo "**ArgoCD App:** \`nodejs-app\`" >> $GITHUB_STEP_SUMMARY
+#         echo "" >> $GITHUB_STEP_SUMMARY
+#         echo "Check ArgoCD for rollback status: [${{ secrets.ARGOCD_SERVER }}/applications/nodejs-app](${{ secrets.ARGOCD_SERVER }}/applications/nodejs-app)" >> $GITHUB_STEP_SUMMARY

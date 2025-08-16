@@ -130,12 +130,28 @@ jobs:
         echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
         echo "Deploying image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
 
+    - name: Get ArgoCD Token
+      id: argocd-auth
+      run: |
+        # Fetch ArgoCD token using admin credentials
+        ARGOCD_TOKEN=$(curl -k -X POST ${{ secrets.ARGOCD_SERVER }}/api/v1/session \
+          -d '{"username":"admin","password":"${{ secrets.ARGOCD_PASSWORD }}"}' \
+          -H "Content-Type: application/json" | jq -r .token)
+        
+        if [ "$ARGOCD_TOKEN" = "null" ] || [ -z "$ARGOCD_TOKEN" ]; then
+          echo "❌ Failed to get ArgoCD token"
+          exit 1
+        fi
+        
+        echo "✅ Successfully obtained ArgoCD token"
+        echo "argocd_token=${ARGOCD_TOKEN}" >> $GITHUB_OUTPUT
+
     - name: Update ArgoCD Application Image
       run: |
         # Update the application spec with new image
         curl -k -X PATCH \
           "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app" \
-          -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}" \
+          -H "Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}" \
           -H "Content-Type: application/json" \
           -d '{
             "spec": {
@@ -152,13 +168,12 @@ jobs:
         # Trigger deployment sync
         SYNC_RESPONSE=$(curl -k -X POST \
           "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app/sync" \
-          -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}" \
+          -H "Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}" \
           -H "Content-Type: application/json" \
           -d '{
             "revision": "main",
             "prune": true,
-            "dryRun": false,
-            "syncOptions": ["CreateNamespace=true"]
+            "dryRun": false
           }')
         
         echo "Sync triggered: $SYNC_RESPONSE"
@@ -175,7 +190,7 @@ jobs:
         for i in {1..60}; do  # Wait up to 10 minutes
           STATUS_RESPONSE=$(curl -k -s \
             "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app" \
-            -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}")
+            -H "Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}")
           
           SYNC_STATUS=$(echo $STATUS_RESPONSE | jq -r '.status.sync.status')
           HEALTH_STATUS=$(echo $STATUS_RESPONSE | jq -r '.status.health.status')
@@ -205,7 +220,7 @@ jobs:
         # Get current application status
         curl -k -s \
           "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app" \
-          -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}" | \
+          -H "Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}" | \
           jq '{
             name: .metadata.name,
             image: .spec.source.kustomize.images[0],
@@ -232,6 +247,22 @@ jobs:
     needs: [build-and-push, deploy-argocd]
     
     steps:
+    - name: Get ArgoCD Token for Rollback
+      id: argocd-auth-rollback
+      run: |
+        # Fetch ArgoCD token using admin credentials
+        ARGOCD_TOKEN=$(curl -k -X POST ${{ secrets.ARGOCD_SERVER }}/api/v1/session \
+          -d '{"username":"admin","password":"${{ secrets.ARGOCD_PASSWORD }}"}' \
+          -H "Content-Type: application/json" | jq -r .token)
+        
+        if [ "$ARGOCD_TOKEN" = "null" ] || [ -z "$ARGOCD_TOKEN" ]; then
+          echo "❌ Failed to get ArgoCD token for rollback"
+          exit 1
+        fi
+        
+        echo "✅ Successfully obtained ArgoCD token for rollback"
+        echo "argocd_token=${ARGOCD_TOKEN}" >> $GITHUB_OUTPUT
+        
     - name: Rollback deployment
       run: |
         echo "🔄 Rolling back deployment..."
@@ -239,14 +270,14 @@ jobs:
         # Get previous revision
         HISTORY_RESPONSE=$(curl -k -s \
           "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app/revisions" \
-          -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}")
+          -H "Authorization: Bearer ${{ steps.argocd-auth-rollback.outputs.argocd_token }}")
         
         PREVIOUS_REVISION=$(echo $HISTORY_RESPONSE | jq -r '.[1].id // "1"')
         
         # Trigger rollback
         curl -k -X POST \
           "${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app/rollback" \
-          -H "Authorization: Bearer ${{ secrets.ARGOCD_TOKEN }}" \
+          -H "Authorization: Bearer ${{ steps.argocd-auth-rollback.outputs.argocd_token }}" \
           -H "Content-Type: application/json" \
           -d "{\"id\": \"$PREVIOUS_REVISION\"}"
         
