@@ -105,18 +105,31 @@ jobs:
         # Deploy using ArgoCD API
         echo "🌐 Calling ArgoCD API..."
         
-        # Use printf to create JSON payload avoiding shell issues
-        printf -v JSON_PAYLOAD '{"manifest":"%s","group":"apps","version":"v1","kind":"Deployment","name":"nodejs-app","namespace":"default"}' "$ESCAPED_MANIFEST"
+        # Create JSON payload file to avoid shell escaping issues
+        echo "{" > payload.json
+        echo "  \"manifest\": \"$ESCAPED_MANIFEST\"," >> payload.json
+        echo "  \"group\": \"apps\"," >> payload.json
+        echo "  \"version\": \"v1\"," >> payload.json
+        echo "  \"kind\": \"Deployment\"," >> payload.json
+        echo "  \"name\": \"nodejs-app\"," >> payload.json
+        echo "  \"namespace\": \"default\"" >> payload.json
+        echo "}" >> payload.json
+        
+        echo "📄 Created JSON payload:"
+        cat payload.json
         
         RESPONSE=$(curl -s -w "\n%{http_code}" \
           --location '${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app-api/resource' \
           --header 'Content-Type: application/json' \
           --header 'Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}' \
-          --data "$JSON_PAYLOAD")
+          --data @payload.json)
         
         # Check response
         HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
         RESPONSE_BODY=$(echo "$RESPONSE" | head -n -1)
+        
+        # Cleanup
+        rm -f payload.json
         
         if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
             echo "✅ Deployment successful!"
