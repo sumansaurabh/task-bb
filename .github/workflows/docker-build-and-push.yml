@@ -59,23 +59,29 @@ jobs:
         echo "📋 Using image tag: $IMAGE_TAG"
         echo "🎯 Updating image: ghcr.io/sumansaurabh/task-bb/backend:$IMAGE_TAG"
         
-        # Update the ArgoCD application with new image tag using Kustomization
+        # First get the current application configuration
+        echo "📥 Getting current application configuration..."
+        CURRENT_APP=$(curl -s \
+          --location '${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app-api' \
+          --header 'Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}')
+        
+        # Extract necessary fields and update image
+        UPDATED_APP=$(echo "$CURRENT_APP" | jq --arg IMAGE_TAG "$IMAGE_TAG" '
+          {
+            metadata: .metadata,
+            spec: (.spec | 
+              .source.path = "k8s-manifests/app" |
+              .source.kustomize.images = ["ghcr.io/sumansaurabh/task-bb/backend:\($IMAGE_TAG)"]
+            )
+          }')
+        
+        # Update the ArgoCD application with new image tag using PUT
         RESPONSE=$(curl -s -w "\n%{http_code}" \
           --location '${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app-api' \
-          --request PATCH \
+          --request PUT \
           --header 'Content-Type: application/json' \
           --header 'Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}' \
-          --data '{
-            "spec": {
-              "source": {
-                "kustomize": {
-                  "images": [
-                    "ghcr.io/sumansaurabh/task-bb/backend:'$IMAGE_TAG'"
-                  ]
-                }
-              }
-            }
-          }')
+          --data "$UPDATED_APP")
         
         # Check response
         HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
@@ -90,72 +96,12 @@ jobs:
             exit 1
         fi
 
-    - name: Trigger ArgoCD Sync
-      run: |
-        echo "🔄 Triggering ArgoCD sync..."
-        
-        # Trigger sync to deploy the updated image
-        SYNC_RESPONSE=$(curl -s -w "\n%{http_code}" \
-          --location '${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app-api/sync' \
-          --header 'Content-Type: application/json' \
-          --header 'Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}' \
-          --data '{
-            "revision": "main",
-            "dryRun": false
-          }')
-        
-        # Check sync response
-        SYNC_HTTP_CODE=$(echo "$SYNC_RESPONSE" | tail -n1)
-        SYNC_RESPONSE_BODY=$(echo "$SYNC_RESPONSE" | head -n -1)
-        
-        if [ "$SYNC_HTTP_CODE" = "200" ] || [ "$SYNC_HTTP_CODE" = "201" ]; then
-            echo "✅ ArgoCD sync triggered successfully!"
-            echo "🚀 Deployment is now in progress..."
-        else
-            echo "❌ Failed to trigger ArgoCD sync (HTTP $SYNC_HTTP_CODE)"
-            echo "Response: $SYNC_RESPONSE_BODY"
-            exit 1
-        fi
-
-    - name: Wait for Sync Completion
-      run: |
-        echo "⏳ Waiting for sync to complete..."
-        
-        # Wait for sync to complete (max 5 minutes)
-        for i in {1..30}; do
-          sleep 10
-          
-          # Check application status
-          STATUS_RESPONSE=$(curl -s \
-            --location '${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app-api' \
-            --header 'Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}')
-          
-          SYNC_STATUS=$(echo "$STATUS_RESPONSE" | jq -r '.status.sync.status // "Unknown"')
-          HEALTH_STATUS=$(echo "$STATUS_RESPONSE" | jq -r '.status.health.status // "Unknown"')
-          
-          echo "📊 Sync Status: $SYNC_STATUS | Health Status: $HEALTH_STATUS"
-          
-          if [ "$SYNC_STATUS" = "Synced" ] && [ "$HEALTH_STATUS" = "Healthy" ]; then
-            echo "✅ Application is synced and healthy!"
-            break
-          elif [ "$SYNC_STATUS" = "Failed" ]; then
-            echo "❌ Sync failed!"
-            exit 1
-          fi
-          
-          if [ $i -eq 30 ]; then
-            echo "⚠️  Timeout waiting for sync completion"
-            echo "Current status - Sync: $SYNC_STATUS, Health: $HEALTH_STATUS"
-            # Don't fail the build, just warn
-          fi
-        done
-
     - name: Create deployment summary
       run: |
         echo "## 🚀 ArgoCD Kustomization Deployment" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Deployment Method:** ArgoCD API with Kustomization" >> $GITHUB_STEP_SUMMARY
-        echo "**Configuration Source:** Git Repository (Kustomization)" >> $GITHUB_STEP_SUMMARY
+        echo "**Configuration Source:** Git Repository (\`k8s-manifests/app/\`)" >> $GITHUB_STEP_SUMMARY
         echo "**Image Deployed:** \`ghcr.io/sumansaurabh/task-bb/backend:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Images Built:**" >> $GITHUB_STEP_SUMMARY
@@ -167,4 +113,4 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "✅ Deployment completed using ArgoCD Kustomization approach" >> $GITHUB_STEP_SUMMARY
         echo "🎯 No Git commits needed for image tag updates" >> $GITHUB_STEP_SUMMARY
-        echo "📋 Configuration managed in Git, image tags updated via API" >> $GITHUB_STEP_SUMMARY
+        echo "📋 Configuration managed in Git (\`k8s-manifests/app/\`), image tags updated via API" >> $GITHUB_STEP_SUMMARY
