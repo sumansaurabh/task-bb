@@ -137,7 +137,10 @@ app.post('/start-lro', async (req, res) => {
                 const data = {
                     count: counter,
                     timestamp: new Date().toISOString(),
-                    progress: (counter / maxCount * 100).toFixed(2)
+                    progress: (counter / maxCount * 100).toFixed(2),
+                    podName,
+                    namespace
+
                 };
                 
                 res.write(`data: ${JSON.stringify(data)}\n\n`);
