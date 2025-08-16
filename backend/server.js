@@ -112,6 +112,8 @@ app.get('/stream-test', (req, res) => {
 // When LRO starts - Streaming version
 app.post('/start-lro', async (req, res) => {
     try {
+        const podName = process.env.POD_NAME || process.env.HOSTNAME;
+        const namespace = process.env.NAMESPACE || 'default';
         await markPodAsLRO();
         
         // Set headers for Server-Sent Events
@@ -139,7 +141,7 @@ app.post('/start-lro', async (req, res) => {
                 };
                 
                 res.write(`data: ${JSON.stringify(data)}\n\n`);
-                console.log(`Streaming count: ${counter}`);
+                console.log(`Streaming count: ${counter} on pod ${podName} and namespace ${namespace}`);
                 counter++;
             } else {
                 // Send completion message
