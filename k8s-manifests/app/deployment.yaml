@@ -1,3 +1,37 @@
+# Service Account for API access
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nodejs-service-account
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: pod-manager
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nodejs-service-account-binding
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: nodejs-service-account
+  namespace: default
+roleRef:
+  kind: Role
+  name: pod-manager
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
