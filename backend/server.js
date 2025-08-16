@@ -212,6 +212,71 @@ app.get('/lro-status', async (req, res) => {
     }
 });
 
+// Graceful shutdown endpoint for preStop hook
+app.get('/api/shutdown', async (req, res) => {
+    try {
+        const podName = process.env.POD_NAME || process.env.HOSTNAME;
+        const namespace = process.env.NAMESPACE || 'default';
+        
+        console.log(`Shutdown request received for pod: ${podName}`);
+        
+        // Check if LRO is active
+        const pod = await getPod(podName, namespace);
+        const lroActive = pod.metadata.annotations?.['app.company.com/lro-active'] === 'true';
+        
+        if (lroActive) {
+            console.log(`LRO is active on pod ${podName}, waiting for completion...`);
+            
+            // Keep checking until LRO is complete
+            let checkCount = 0;
+            const maxChecks = 60; // 5 minutes max wait (60 * 5 seconds)
+            
+            while (checkCount < maxChecks) {
+                await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+                
+                try {
+                    const updatedPod = await getPod(podName, namespace);
+                    const stillActive = updatedPod.metadata.annotations?.['app.company.com/lro-active'] === 'true';
+                    
+                    if (!stillActive) {
+                        console.log(`LRO completed on pod ${podName}, safe to shutdown`);
+                        break;
+                    }
+                    
+                    checkCount++;
+                    console.log(`LRO still active, check ${checkCount}/${maxChecks}`);
+                } catch (error) {
+                    console.error('Error checking LRO status:', error);
+                    break;
+                }
+            }
+            
+            if (checkCount >= maxChecks) {
+                console.warn(`LRO timeout reached for pod ${podName}, proceeding with shutdown`);
+            }
+        } else {
+            console.log(`No active LRO on pod ${podName}, safe to shutdown immediately`);
+        }
+        
+        // Additional grace period for cleanup
+        await new Promise(resolve => setTimeout(resolve, 10000)); // 10 second grace period
+        
+        res.status(200).json({ 
+            status: 'shutdown_ready', 
+            pod: podName,
+            lroWasActive: lroActive 
+        });
+        
+    } catch (error) {
+        console.error('Error in shutdown handler:', error);
+        // Even if there's an error, allow shutdown to proceed
+        res.status(200).json({ 
+            status: 'shutdown_ready_with_error', 
+            error: error.message 
+        });
+    }
+});
+
 // Helper function to make Kubernetes API requests
 function makeK8sRequest(path, method = 'GET', body = null) {
     return new Promise((resolve, reject) => {

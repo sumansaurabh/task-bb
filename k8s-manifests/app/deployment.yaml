@@ -44,8 +44,8 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 2
-      maxSurge: 3
+      maxUnavailable: 0  # Prevent forced termination
+      maxSurge: 5        # Allow more new pods during update
   selector:
     matchLabels:
       app: nodejs-app
@@ -97,21 +97,10 @@ spec:
           periodSeconds: 5
         lifecycle:
           preStop:
-            exec:
-              command: ["/bin/bash", "-c", "
-                POD_NAME=${POD_NAME};
-                NAMESPACE=${NAMESPACE:-default};
-                echo 'Checking LRO status for pod:' $POD_NAME;
-                LRO_ACTIVE=$(kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.metadata.annotations.app\\.company\\.com/lro-active}' 2>/dev/null || echo '');
-                if [ '$LRO_ACTIVE' = 'true' ]; then
-                  echo 'LRO active, waiting for completion...';
-                  while [ '$LRO_ACTIVE' = 'true' ]; do
-                    sleep 5;
-                    LRO_ACTIVE=$(kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.metadata.annotations.app\\.company\\.com/lro-active}' 2>/dev/null || echo '');
-                  done;
-                fi;
-                echo 'Safe to terminate - sleeping 15s for graceful shutdown';
-                sleep 15;"]
+            httpGet:
+              path: /api/shutdown
+              port: 3000
+              scheme: HTTP
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -124,7 +113,7 @@ spec:
                   values:
                   - nodejs-app
               topologyKey: kubernetes.io/hostname
-      terminationGracePeriodSeconds: 300  # 5 minutes for LRO
+      terminationGracePeriodSeconds: 600  # 10 minutes for LRO completion
 ---
 apiVersion: v1
 kind: Service
