@@ -25,6 +25,18 @@ spec:
       containers:
       - name: nodejs-app
         image: ghcr.io/sumansaurabh/task-bb/backend:main-48f891c
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/bash", "-c", "
+                # Check if LRO is active
+                if [ -f /tmp/lro-active ]; then
+                  echo 'LRO active, waiting for completion...';
+                  while [ -f /tmp/lro-active ]; do
+                    sleep 5;
+                  done;
+                fi;
+                echo 'Safe to terminate';"]
         ports:
         - containerPort: 3000
         env:
