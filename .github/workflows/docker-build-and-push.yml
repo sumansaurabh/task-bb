@@ -105,18 +105,14 @@ jobs:
         # Deploy using ArgoCD API
         echo "🌐 Calling ArgoCD API..."
         
+        # Use printf to create JSON payload avoiding shell issues
+        printf -v JSON_PAYLOAD '{"manifest":"%s","group":"apps","version":"v1","kind":"Deployment","name":"nodejs-app","namespace":"default"}' "$ESCAPED_MANIFEST"
+        
         RESPONSE=$(curl -s -w "\n%{http_code}" \
           --location '${{ secrets.ARGOCD_SERVER }}/api/v1/applications/nodejs-app-api/resource' \
           --header 'Content-Type: application/json' \
           --header 'Authorization: Bearer ${{ steps.argocd-auth.outputs.argocd_token }}' \
-          --data "{
-            \"manifest\": \"$ESCAPED_MANIFEST\",
-            \"group\": \"apps\",
-            \"version\": \"v1\",
-            \"kind\": \"Deployment\",
-            \"name\": \"nodejs-app\",
-            \"namespace\": \"default\"
-          }")
+          --data "$JSON_PAYLOAD")
         
         # Check response
         HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
