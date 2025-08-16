@@ -27,7 +27,35 @@ resource "google_compute_instance" "instance-20250816-053549" {
   machine_type = "e2-medium"
 
   metadata = {
-    enable-osconfig = "TRUE"
+  enable-osconfig = "TRUE"
+  # Startup script: install nginx and configure a reverse-proxy to the backend on port 3000
+  startup-script = <<-EOF
+    #!/bin/bash
+    set -e
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y nginx
+    systemctl enable nginx
+
+    cat > /etc/nginx/sites-available/default <<'NGINX_CONF'
+    server {
+      listen 80 default_server;
+      listen [::]:80 default_server;
+      server_name _;
+
+      location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+      }
+    }
+    NGINX_CONF
+
+    systemctl restart nginx
+  EOF
   }
 
   name = "instance-20250816-053549"
