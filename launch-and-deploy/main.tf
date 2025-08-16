@@ -1,10 +1,41 @@
+# Variables for configuration
+variable "cf_api_token" {
+  description = "Cloudflare API token"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "domain_name" {
+  description = "Domain name for the application"
+  type        = string
+  default     = "bareflux.co"
+}
+
+variable "github_repo" {
+  description = "GitHub repository URL"
+  type        = string
+  default     = "https://github.com/sumansaurabh/task-bb.git"
+}
+
+variable "admin_email" {
+  description = "Admin email for SSL certificates"
+  type        = string
+  default     = "admin@bareflux.co"
+}
+
+# Generate a short random id for resource naming (used for boot disk device_name)
+resource "random_id" "device" {
+  byte_length = 4
+}
+
 # This code is compatible with Terraform 4.25.0 and versions that are backward compatible to 4.25.0.
 # For information about validating this Terraform code, see https://developer.hashicorp.com/terraform/tutorials/gcp-get-started/google-cloud-platform-build#format-and-validate-the-configuration
 
-resource "google_compute_instance" "instance-20250816-053549" {
+resource "google_compute_instance" "blackbox-instance" {
   boot_disk {
     auto_delete = true
-    device_name = "instance-20250816-053549"
+    device_name = "blackbox-${random_id.device.hex}"
 
     initialize_params {
       image = "projects/debian-cloud/global/images/debian-12-bookworm-v20250812"
@@ -27,38 +58,18 @@ resource "google_compute_instance" "instance-20250816-053549" {
   machine_type = "e2-medium"
 
   metadata = {
-  enable-osconfig = "TRUE"
-  # Startup script: install nginx and configure a reverse-proxy to the backend on port 3000
-  startup-script = <<-EOF
-    #!/bin/bash
-    set -e
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update
-    apt-get install -y nginx
-    systemctl enable nginx
-
-    cat > /etc/nginx/sites-available/default <<'NGINX_CONF'
-    server {
-      listen 80 default_server;
-      listen [::]:80 default_server;
-      server_name _;
-
-      location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-      }
-    }
-    NGINX_CONF
-
-    systemctl restart nginx
-  EOF
+    enable-osconfig = "TRUE"
+    # Use cloud-init user-data for proper initialization
+    user-data = templatefile("${path.module}/cloud-init.yaml", {
+      setup_script = base64encode(file("${path.module}/setup.sh"))
+      cf_api_token = var.cf_api_token
+      domain_name  = var.domain_name
+      github_repo  = var.github_repo
+      admin_email  = var.admin_email
+    })
   }
 
-  name = "instance-20250816-053549"
+  name = "blackbox-${random_id.device.hex}"
 
   network_interface {
     access_config {
@@ -93,6 +104,10 @@ resource "google_compute_instance" "instance-20250816-053549" {
   zone = "us-central1-c"
 }
 
+# Note: Google Ops Agent policy module removed to avoid conflicts
+# The instance is already labeled with "goog-ops-agent-policy" = "v2-x86-template-1-4-0"
+# which will automatically apply the existing ops agent policy in the project
+
 provider "google" {
   # Use Application Default Credentials (ADC) instead of service account key file
   # Run: gcloud auth application-default login
@@ -100,24 +115,29 @@ provider "google" {
   region  = "us-central1"
 }
 
+# Output the external IP address
+output "instance_external_ip" {
+  description = "External IP address of the compute instance"
+  value       = google_compute_instance.blackbox-instance.network_interface[0].access_config[0].nat_ip
+}
 
-// Firewall rule to allow HTTP (80) and HTTPS (443) to instances tagged with "web-server".
-resource "google_compute_firewall" "allow-http-https" {
-  name    = "allow-http-https"
-  project = "penify-prod"
+output "application_url" {
+  description = "URL where the application will be accessible"
+  value       = "https://${var.domain_name}"
+}
 
-  network = "https://www.googleapis.com/compute/v1/projects/penify-prod/global/networks/default"
+# Helpful SSH command outputs
+output "gcloud_ssh_command_nodeuser" {
+  description = "gcloud command to SSH into the instance as the 'nodeuser' created by cloud-init"
+  value       = "gcloud compute ssh nodeuser@blackbox-${random_id.device.hex} --zone us-central1-c --project penify-prod"
+}
 
-  direction    = "INGRESS"
-  priority     = 1000
-  description  = "Allow HTTP and HTTPS from the internet to web-server instances"
+output "gcloud_ssh_command_default_user" {
+  description = "gcloud command to SSH into the instance as your local user (gcloud will map keys)"
+  value       = "gcloud compute ssh blackbox-${random_id.device.hex} --zone us-central1-c --project penify-prod"
+}
 
-  allow {
-    protocol = "tcp"
-    ports    = ["80", "443"]
-  }
-
-  source_ranges = ["0.0.0.0/0"]
-
-  target_tags = ["web-server"]
+output "instance_name" {
+  description = "Name of the created instance"
+  value       = "blackbox-${random_id.device.hex}"
 }

@@ -1,0 +1,64 @@
+#cloud-config
+
+# Cloud-init configuration for Node.js application deployment
+# This will run the setup.sh script to configure the environment
+
+users:
+  - name: nodeuser
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    home: /home/nodeuser
+    groups: sudo
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - wget
+  - git
+  - build-essential
+  - nginx
+  - certbot
+  - python3-certbot-nginx
+  - jq
+  - ufw
+  - ca-certificates
+  - gnupg
+  - lsb-release
+
+write_files:
+  - path: /home/nodeuser/setup.sh
+    permissions: '0755'
+    encoding: base64
+    content: ${setup_script}
+    owner: nodeuser:nodeuser
+
+runcmd:
+  # Set environment variables for the setup script
+  - export CF_API_TOKEN="${cf_api_token}"
+  - export DOMAIN_NAME="${domain_name}"
+  - export SERVER_IP="$(curl -s ifconfig.me)"
+  - export GITHUB_REPO="${github_repo}"
+  - export EMAIL="${admin_email}"
+  # Run the setup script as the nodeuser
+  - sudo -u nodeuser -i /home/nodeuser/setup.sh
+  # Enable and start services
+  - systemctl enable nginx
+  - systemctl start nginx
+  - ufw --force enable
+  - ufw allow ssh
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+
+final_message: "Node.js application setup completed via cloud-init"
+
+# Configure logging
+output:
+  all: ">> /var/log/cloud-init-output.log"
+
+# Reboot after setup (optional)
+power_state:
+  mode: reboot
+  delay: "+1"
+  message: "Rebooting after cloud-init setup"
