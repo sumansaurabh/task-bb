@@ -30,7 +30,6 @@ jobs:
         tags: |
           ghcr.io/sumansaurabh/task-bb/backend:latest
           ghcr.io/sumansaurabh/task-bb/backend:${{ github.sha }}
-          # ghcr.io/sumansaurabh/task-bb/backend:${{ github.run_number }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
      
