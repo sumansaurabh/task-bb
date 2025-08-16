@@ -73,6 +73,14 @@ async function markPodAsLRO() {
 
 // When LRO completes
 async function unmarkPodAsLRO() {
+    const k8s = require('@kubernetes/client-node');
+    const kc = new k8s.KubeConfig();
+    kc.loadFromCluster();
+    const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
+    
+    const podName = process.env.HOSTNAME; // Pod name
+    const namespace = process.env.NAMESPACE || 'default';
+    
     // Remove the annotation
     await k8sApi.patchNamespacedPod(
         podName,
@@ -84,7 +92,11 @@ async function unmarkPodAsLRO() {
                 }
             }
         },
-        // ... same parameters
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { headers: { 'Content-Type': 'application/merge-patch+json' } }
     );
 }
 
