@@ -24,7 +24,7 @@ spec:
       serviceAccountName: lro-service-account  # Add this line
       containers:
       - name: nodejs-app
-        image: ghcr.io/sumansaurabh/task-bb/backend:main-48f891c
+        image: ghcr.io/sumansaurabh/task-bb/backend:latest
         ports:
         - containerPort: 3000
         env:
@@ -33,7 +33,7 @@ spec:
         - name: PORT
           value: "3000"
         - name: VERSION
-          value: "main-48f891c"
+          value: "latest"
         - name: NAMESPACE
           valueFrom:
             fieldRef:
