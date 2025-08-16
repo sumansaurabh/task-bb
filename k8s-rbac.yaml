@@ -7,29 +7,32 @@ metadata:
   namespace: default  # Change this to your actual namespace
 
 ---
-# Role with permissions to patch pods
+# Update the existing Role to include pod-patcher permissions
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  namespace: default  # Change this to your actual namespace
-  name: pod-patcher
+  namespace: default
+  name: pod-manager
 rules:
 - apiGroups: [""]
   resources: ["pods"]
-  verbs: ["get", "patch", "update"]
+  verbs: ["get", "list", "patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list"]
 
 ---
-# RoleBinding to connect ServiceAccount to Role
+# The RoleBinding already exists and is correct
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: pod-patcher-binding
-  namespace: default  # Change this to your actual namespace
+  name: nodejs-service-account-binding
+  namespace: default
 subjects:
 - kind: ServiceAccount
-  name: lro-service-account
+  name: nodejs-service-account
   namespace: default
 roleRef:
   kind: Role
-  name: pod-patcher
+  name: pod-manager
   apiGroup: rbac.authorization.k8s.io
