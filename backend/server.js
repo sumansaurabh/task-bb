@@ -126,7 +126,7 @@ app.post('/start-lro', async (req, res) => {
         });
 
         let counter = 1;
-        const maxCount = 10000;
+        const maxCount = 100;
 
         // Send initial message
         res.write(`data: ${JSON.stringify({ message: 'LRO started', count: 0 })}\n\n`);
@@ -227,24 +227,32 @@ app.get('/api/shutdown', async (req, res) => {
         if (lroActive) {
             console.log(`LRO is active on pod ${podName}, waiting for completion...`);
             
-            // Keep checking until LRO is complete
+            // Keep checking every 30 seconds until LRO is complete
             let checkCount = 0;
-            const maxChecks = 60; // 5 minutes max wait (60 * 5 seconds)
+            const maxChecks = 20; // 10 minutes max wait (20 * 30 seconds)
+            const checkInterval = 30000; // 30 seconds
             
             while (checkCount < maxChecks) {
-                await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+                await new Promise(resolve => setTimeout(resolve, checkInterval));
                 
                 try {
                     const updatedPod = await getPod(podName, namespace);
                     const stillActive = updatedPod.metadata.annotations?.['app.company.com/lro-active'] === 'true';
                     
                     if (!stillActive) {
-                        console.log(`LRO completed on pod ${podName}, safe to shutdown`);
-                        break;
+                        console.log(`✅ LRO completed on pod ${podName}, terminating immediately`);
+                        res.status(200).json({ 
+                            status: 'shutdown_ready', 
+                            pod: podName,
+                            lroWasActive: true,
+                            lroCompletedAfterChecks: checkCount + 1,
+                            message: 'LRO completed, safe to terminate'
+                        });
+                        return;
                     }
                     
                     checkCount++;
-                    console.log(`LRO still active, check ${checkCount}/${maxChecks}`);
+                    console.log(`⏳ LRO still active, check ${checkCount}/${maxChecks} (next check in 30s)`);
                 } catch (error) {
                     console.error('Error checking LRO status:', error);
                     break;
@@ -252,19 +260,17 @@ app.get('/api/shutdown', async (req, res) => {
             }
             
             if (checkCount >= maxChecks) {
-                console.warn(`LRO timeout reached for pod ${podName}, proceeding with shutdown`);
+                console.warn(`⚠️  LRO timeout reached for pod ${podName}, proceeding with shutdown`);
             }
         } else {
-            console.log(`No active LRO on pod ${podName}, safe to shutdown immediately`);
+            console.log(`✅ No active LRO on pod ${podName}, safe to shutdown immediately`);
         }
-        
-        // Additional grace period for cleanup
-        await new Promise(resolve => setTimeout(resolve, 10000)); // 10 second grace period
         
         res.status(200).json({ 
             status: 'shutdown_ready', 
             pod: podName,
-            lroWasActive: lroActive 
+            lroWasActive: lroActive,
+            message: lroActive ? 'LRO timeout reached' : 'No active LRO'
         });
         
     } catch (error) {
