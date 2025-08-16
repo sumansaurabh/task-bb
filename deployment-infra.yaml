@@ -3,8 +3,15 @@ kind: Deployment
 metadata:
   name: nodejs-app
   namespace: default
+  labels:
+    app: nodejs-app
 spec:
-  replicas: 2
+  replicas: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 2        # Only 2 pods down at a time
+      maxSurge: 3              # Can have 3 extra pods during update
   selector:
     matchLabels:
       app: nodejs-app
@@ -12,6 +19,7 @@ spec:
     metadata:
       labels:
         app: nodejs-app
+        version: "main-48f891c"   # Current version
     spec:
       containers:
       - name: nodejs-app
@@ -23,6 +31,8 @@ spec:
           value: "production"
         - name: PORT
           value: "3000"
+        - name: VERSION
+          value: "main-48f891c"
         resources:
           requests:
             memory: "128Mi"
@@ -32,21 +42,47 @@ spec:
             cpu: "300m"
         livenessProbe:
           httpGet:
-            path: /
+            path: /health
             port: 3000
           initialDelaySeconds: 30
           periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /
+            path: /health
             port: 3000
-          initialDelaySeconds: 5
+          initialDelaySeconds: 10
           periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        # Graceful shutdown
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sleep", "15"]
+      # Ensure pods are distributed across nodes if you have multiple
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - nodejs-app
+              topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 30
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: nodejs-app-service
+  labels:
+    app: nodejs-app
 spec:
   selector:
     app: nodejs-app
@@ -55,3 +91,4 @@ spec:
     port: 80
     targetPort: 3000
   type: ClusterIP
+  sessionAffinity: None
