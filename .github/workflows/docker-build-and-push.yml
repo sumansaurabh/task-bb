@@ -4,8 +4,6 @@ name: Build and Deploy Latest
 on:
   push:
     branches: [main]
-    paths: 
-    - 'backend/**'
 
 jobs:
   deploy:
