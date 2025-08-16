@@ -24,6 +24,18 @@ variable "admin_email" {
   default     = "admin@bareflux.co"
 }
 
+variable "app_port" {
+  description = "Application port"
+  type        = number
+  default     = 3000
+}
+
+variable "node_env" {
+  description = "Node.js environment"
+  type        = string
+  default     = "production"
+}
+
 # Generate a short random id for resource naming (used for boot disk device_name)
 resource "random_id" "device" {
   byte_length = 4
@@ -59,14 +71,13 @@ resource "google_compute_instance" "blackbox-instance" {
 
   metadata = {
     enable-osconfig = "TRUE"
-    # Use cloud-init user-data for proper initialization
-    user-data = templatefile("${path.module}/cloud-init.yaml", {
-      setup_script = base64encode(file("${path.module}/setup.sh"))
-      cf_api_token = var.cf_api_token
-      domain_name  = var.domain_name
-      github_repo  = var.github_repo
-      admin_email  = var.admin_email
-    })
+    # Use startup-script for Google Cloud with environment variables
+    startup-script = templatefile("${path.module}/startup-script-enhanced.sh", {})
+    # Environment variables for the startup script
+    DOMAIN_NAME  = var.domain_name
+    GITHUB_REPO  = var.github_repo
+    APP_PORT     = var.app_port
+    NODE_ENV     = var.node_env
   }
 
   name = "blackbox-${random_id.device.hex}"
