@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nodejs-app
+  namespace: default
+  labels:
+    app: nodejs-app
+spec:
+  replicas: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 2        # Only 2 pods down at a time
+      maxSurge: 3              # Can have 3 extra pods during update
+  selector:
+    matchLabels:
+      app: nodejs-app
+  template:
+    metadata:
+      labels:
+        app: nodejs-app
+        version: "main-48f891c"   # Current version
+    spec:
+      serviceAccountName: lro-service-account  # Add this line
+      containers:
+      - name: nodejs-app
+        image: ghcr.io/sumansaurabh/task-bb/backend:main-48f891c
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "3000"
+        - name: VERSION
+          value: "main-48f891c"
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "300m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        # Graceful shutdown with LRO awareness
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/bash", "-c", "
+                # Check if LRO is active via annotation
+                POD_NAME=$HOSTNAME;
+                NAMESPACE=${NAMESPACE:-default};
+                LRO_ACTIVE=$(kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.metadata.annotations.app\\.company\\.com/lro-active}' 2>/dev/null || echo '');
+                if [ '$LRO_ACTIVE' = 'true' ]; then
+                  echo 'LRO active, waiting for completion...';
+                  while [ '$LRO_ACTIVE' = 'true' ]; do
+                    sleep 5;
+                    LRO_ACTIVE=$(kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.metadata.annotations.app\\.company\\.com/lro-active}' 2>/dev/null || echo '');
+                  done;
+                fi;
+                echo 'Safe to terminate - sleeping 15s for graceful shutdown';
+                sleep 15;"]
+      # Ensure pods are distributed across nodes if you have multiple
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - nodejs-app
+              topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nodejs-app-service
+  labels:
+    app: nodejs-app
+spec:
+  selector:
+    app: nodejs-app
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 3000
+  type: ClusterIP
+  sessionAffinity: None
