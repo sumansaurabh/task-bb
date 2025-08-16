@@ -26,7 +26,7 @@ try {
 
 // Routes
 app.get('/', (req, res) => {
-    res.json({ message: 'Hello World! Suman\'s hello worls Minimalist Express Server is running.' });
+    res.json({ message: 'Hello World! Suman\'s hello worlds Minimalist Express Server is running.' });
 });
 
 app.get('/api/health', (req, res) => {
@@ -126,7 +126,7 @@ app.post('/start-lro', async (req, res) => {
         });
 
         let counter = 1;
-        const maxCount = 100;
+        const maxCount = 200;
 
         // Send initial message
         res.write(`data: ${JSON.stringify({ message: 'LRO started', count: 0 })}\n\n`);
