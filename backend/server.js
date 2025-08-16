@@ -77,44 +77,44 @@ async function markPodAsLRO() {
         const podName = process.env.POD_NAME || process.env.HOSTNAME;
         const namespace = process.env.NAMESPACE || 'default';
         
-        // Debug logging
-        console.log('Environment variables:', {
-            POD_NAME: process.env.POD_NAME,
-            HOSTNAME: process.env.HOSTNAME,
-            NAMESPACE: process.env.NAMESPACE,
-            podName: podName,
-            namespace: namespace
-        });
+        console.log(`Marking pod ${podName} as LRO active in namespace ${namespace}`);
         
-        if (!podName) {
-            throw new Error('Pod name is undefined - check POD_NAME environment variable');
-        }
-        
-        console.log(`Marking pod ${podName} as LRO active`);
-        
-        await k8sApi.patchNamespacedPod(
-            podName,
-            namespace,
-            {
-                metadata: {
-                    annotations: {
-                        'app.company.com/lro-active': 'true',
-                        'app.company.com/lro-started': new Date().toISOString()
-                    }
+        // Create patch object
+        const patch = {
+            metadata: {
+                annotations: {
+                    'app.company.com/lro-active': 'true',
+                    'app.company.com/lro-started': new Date().toISOString()
                 }
-            },
-            undefined, undefined, undefined, undefined,
-            { headers: { 'Content-Type': 'application/merge-patch+json' } }
+            }
+        };
+        
+        // Use the correct parameter order and options
+        const response = await k8sApi.patchNamespacedPod(
+            podName,                    // name
+            namespace,                  // namespace  
+            patch,                      // body
+            undefined,                  // pretty
+            undefined,                  // dryRun
+            undefined,                  // fieldManager
+            undefined,                  // fieldValidation
+            undefined,                  // force
+            {                          // options
+                headers: { 
+                    'Content-Type': 'application/merge-patch+json' 
+                }
+            }
         );
         
         console.log(`Successfully marked pod ${podName} as LRO active`);
+        return response;
     } catch (error) {
         console.error('Error marking pod as LRO:', error.message);
+        console.error('Full error:', error);
         throw error;
     }
 }
 
-// When LRO completes
 async function unmarkPodAsLRO() {
     try {
         const k8s = require('@kubernetes/client-node');
@@ -125,25 +125,39 @@ async function unmarkPodAsLRO() {
         const podName = process.env.POD_NAME || process.env.HOSTNAME;
         const namespace = process.env.NAMESPACE || 'default';
         
-        console.log(`Unmarking pod ${podName} as LRO active`);
+        console.log(`Unmarking pod ${podName} as LRO active in namespace ${namespace}`);
         
-        await k8sApi.patchNamespacedPod(
-            podName,
-            namespace,
-            {
-                metadata: {
-                    annotations: {
-                        'app.company.com/lro-active': null  // Remove annotation
-                    }
+        // Create patch object to remove annotation
+        const patch = {
+            metadata: {
+                annotations: {
+                    'app.company.com/lro-active': null  // Remove annotation
                 }
-            },
-            undefined, undefined, undefined, undefined,
-            { headers: { 'Content-Type': 'application/merge-patch+json' } }
+            }
+        };
+        
+        // Use the correct parameter order and options
+        const response = await k8sApi.patchNamespacedPod(
+            podName,                    // name
+            namespace,                  // namespace
+            patch,                      // body
+            undefined,                  // pretty
+            undefined,                  // dryRun
+            undefined,                  // fieldManager
+            undefined,                  // fieldValidation
+            undefined,                  // force
+            {                          // options
+                headers: { 
+                    'Content-Type': 'application/merge-patch+json' 
+                }
+            }
         );
         
         console.log(`Successfully unmarked pod ${podName} as LRO active`);
+        return response;
     } catch (error) {
         console.error('Error unmarking pod as LRO:', error.message);
+        console.error('Full error:', error);
         throw error;
     }
 }
