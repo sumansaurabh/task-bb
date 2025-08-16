@@ -7,7 +7,7 @@ app.use(express.json());
 
 // Routes
 app.get('/', (req, res) => {
-  res.json({ message: 'Hello World! Suman\'s Minimalist + experiment Express Server is running.' });
+  res.json({ message: 'Hello World! Suman\'s Minimalist Express Server is running.' });
 });
 
 app.get('/api/health', (req, res) => {
@@ -79,6 +79,18 @@ async function markPodAsLRO() {
         
         console.log(`Marking pod ${podName} as LRO active in namespace ${namespace}`);
         
+        // Debug logging
+        console.log('Debug - podName:', podName, 'type:', typeof podName);
+        console.log('Debug - namespace:', namespace, 'type:', typeof namespace);
+        
+        if (!podName) {
+            throw new Error('Pod name is null or undefined. POD_NAME and HOSTNAME environment variables are both missing.');
+        }
+        
+        if (!namespace) {
+            throw new Error('Namespace is null or undefined.');
+        }
+        
         // Create patch object
         const patch = {
             metadata: {
@@ -89,22 +101,39 @@ async function markPodAsLRO() {
             }
         };
         
-        // Use the correct parameter order and options
-        const response = await k8sApi.patchNamespacedPod(
-            podName,                    // name
-            namespace,                  // namespace  
-            patch,                      // body
-            undefined,                  // pretty
-            undefined,                  // dryRun
-            undefined,                  // fieldManager
-            undefined,                  // fieldValidation
-            undefined,                  // force
-            {                          // options
+        console.log('Debug - patch object:', JSON.stringify(patch, null, 2));
+        
+        // Use the correct API call - try different approaches based on version
+        let response;
+        try {
+            // Method 1: Object-based parameters (newer versions)
+            response = await k8sApi.patchNamespacedPod({
+                name: podName,
+                namespace: namespace,
+                body: patch,
                 headers: { 
                     'Content-Type': 'application/merge-patch+json' 
                 }
-            }
-        );
+            });
+        } catch (firstError) {
+            console.log('Object-based call failed, trying positional parameters...');
+            // Method 2: Positional parameters (older versions or alternative signature)
+            response = await k8sApi.patchNamespacedPod(
+                podName,        // name
+                namespace,      // namespace
+                patch,          // body
+                undefined,      // pretty
+                undefined,      // dryRun
+                undefined,      // fieldManager
+                undefined,      // fieldValidation
+                undefined,      // force
+                {
+                    headers: { 
+                        'Content-Type': 'application/merge-patch+json' 
+                    }
+                }
+            );
+        }
         
         console.log(`Successfully marked pod ${podName} as LRO active`);
         return response;
@@ -127,6 +156,14 @@ async function unmarkPodAsLRO() {
         
         console.log(`Unmarking pod ${podName} as LRO active in namespace ${namespace}`);
         
+        if (!podName) {
+            throw new Error('Pod name is null or undefined. POD_NAME and HOSTNAME environment variables are both missing.');
+        }
+        
+        if (!namespace) {
+            throw new Error('Namespace is null or undefined.');
+        }
+        
         // Create patch object to remove annotation
         const patch = {
             metadata: {
@@ -136,22 +173,37 @@ async function unmarkPodAsLRO() {
             }
         };
         
-        // Use the correct parameter order and options
-        const response = await k8sApi.patchNamespacedPod(
-            podName,                    // name
-            namespace,                  // namespace
-            patch,                      // body
-            undefined,                  // pretty
-            undefined,                  // dryRun
-            undefined,                  // fieldManager
-            undefined,                  // fieldValidation
-            undefined,                  // force
-            {                          // options
+        // Use the correct API call - try different approaches based on version
+        let response;
+        try {
+            // Method 1: Object-based parameters (newer versions)
+            response = await k8sApi.patchNamespacedPod({
+                name: podName,
+                namespace: namespace,
+                body: patch,
                 headers: { 
                     'Content-Type': 'application/merge-patch+json' 
                 }
-            }
-        );
+            });
+        } catch (firstError) {
+            console.log('Object-based call failed, trying positional parameters...');
+            // Method 2: Positional parameters (older versions or alternative signature)
+            response = await k8sApi.patchNamespacedPod(
+                podName,        // name
+                namespace,      // namespace
+                patch,          // body
+                undefined,      // pretty
+                undefined,      // dryRun
+                undefined,      // fieldManager
+                undefined,      // fieldValidation
+                undefined,      // force
+                {
+                    headers: { 
+                        'Content-Type': 'application/merge-patch+json' 
+                    }
+                }
+            );
+        }
         
         console.log(`Successfully unmarked pod ${podName} as LRO active`);
         return response;
@@ -166,4 +218,11 @@ async function unmarkPodAsLRO() {
 // Start server
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  console.log('Environment variables:', {
+    POD_NAME: process.env.POD_NAME,
+    HOSTNAME: process.env.HOSTNAME,
+    NAMESPACE: process.env.NAMESPACE,
+    podName: process.env.POD_NAME || process.env.HOSTNAME,
+    namespace: process.env.NAMESPACE || 'default'
+  });
 });
