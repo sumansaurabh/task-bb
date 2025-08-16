@@ -27,7 +27,7 @@ app.post('/start-lro', async (req, res) => {
     await markPodAsLRO();
     
     // Start your long-running operation
-    startLongRunningOperation();
+    // startLongRunningOperation();
     
     res.json({ status: 'LRO started' });
 });
@@ -37,68 +37,104 @@ app.post('/end-lro', async (req, res) => {
     await unmarkPodAsLRO();
     
     // Start your long-running operation
-    startLongRunningOperation();
+    // startLongRunningOperation();
     
     res.json({ status: 'LRO started' });
 });
 
+app.get('/lro-status', async (req, res) => {
+    try {
+        const k8s = require('@kubernetes/client-node');
+        const kc = new k8s.KubeConfig();
+        kc.loadFromCluster();
+        const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
+        
+        const podName = process.env.POD_NAME || process.env.HOSTNAME;
+        const namespace = process.env.NAMESPACE || 'default';
+        
+        const pod = await k8sApi.readNamespacedPod(podName, namespace);
+        const lroActive = pod.body.metadata.annotations?.['app.company.com/lro-active'] === 'true';
+        const lroStarted = pod.body.metadata.annotations?.['app.company.com/lro-started'];
+        
+        res.json({
+            pod: podName,
+            lroActive,
+            lroStarted,
+            annotations: pod.body.metadata.annotations
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 async function markPodAsLRO() {
-    const k8s = require('@kubernetes/client-node');
-    const kc = new k8s.KubeConfig();
-    kc.loadFromCluster();
-    const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
-    
-    const podName = process.env.HOSTNAME; // Pod name
-    const namespace = process.env.NAMESPACE || 'default';
-    
-    // Add annotation to prevent eviction
-    await k8sApi.patchNamespacedPod(
-        podName,
-        namespace,
-        {
-            metadata: {
-                annotations: {
-                    'app.company.com/lro-active': 'true',
-                    'app.company.com/lro-started': new Date().toISOString()
+    try {
+        const k8s = require('@kubernetes/client-node');
+        const kc = new k8s.KubeConfig();
+        kc.loadFromCluster();
+        const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
+        
+        const podName = process.env.POD_NAME || process.env.HOSTNAME; // Use POD_NAME first
+        const namespace = process.env.NAMESPACE || 'default';
+        
+        console.log(`Marking pod ${podName} as LRO active`);
+        
+        await k8sApi.patchNamespacedPod(
+            podName,
+            namespace,
+            {
+                metadata: {
+                    annotations: {
+                        'app.company.com/lro-active': 'true',
+                        'app.company.com/lro-started': new Date().toISOString()
+                    }
                 }
-            }
-        },
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        { headers: { 'Content-Type': 'application/merge-patch+json' } }
-    );
+            },
+            undefined, undefined, undefined, undefined,
+            { headers: { 'Content-Type': 'application/merge-patch+json' } }
+        );
+        
+        console.log(`Successfully marked pod ${podName} as LRO active`);
+    } catch (error) {
+        console.error('Error marking pod as LRO:', error.message);
+        throw error;
+    }
 }
 
 // When LRO completes
 async function unmarkPodAsLRO() {
-    const k8s = require('@kubernetes/client-node');
-    const kc = new k8s.KubeConfig();
-    kc.loadFromCluster();
-    const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
-    
-    const podName = process.env.HOSTNAME; // Pod name
-    const namespace = process.env.NAMESPACE || 'default';
-    
-    // Remove the annotation
-    await k8sApi.patchNamespacedPod(
-        podName,
-        namespace,
-        {
-            metadata: {
-                annotations: {
-                    'app.company.com/lro-active': null  // Remove annotation
+    try {
+        const k8s = require('@kubernetes/client-node');
+        const kc = new k8s.KubeConfig();
+        kc.loadFromCluster();
+        const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
+        
+        const podName = process.env.POD_NAME || process.env.HOSTNAME;
+        const namespace = process.env.NAMESPACE || 'default';
+        
+        console.log(`Unmarking pod ${podName} as LRO active`);
+        
+        await k8sApi.patchNamespacedPod(
+            podName,
+            namespace,
+            {
+                metadata: {
+                    annotations: {
+                        'app.company.com/lro-active': null  // Remove annotation
+                    }
                 }
-            }
-        },
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        { headers: { 'Content-Type': 'application/merge-patch+json' } }
-    );
+            },
+            undefined, undefined, undefined, undefined,
+            { headers: { 'Content-Type': 'application/merge-patch+json' } }
+        );
+        
+        console.log(`Successfully unmarked pod ${podName} as LRO active`);
+    } catch (error) {
+        console.error('Error unmarking pod as LRO:', error.message);
+        throw error;
+    }
 }
+
 
 // Start server
 app.listen(PORT, () => {

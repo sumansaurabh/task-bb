@@ -55,10 +55,11 @@ spec:
         app: nodejs-app
         version: "main-48f891c"   # Current version
     spec:
-      serviceAccountName: lro-service-account  # Add this line
+      serviceAccountName: nodejs-service-account  # Add this line
       containers:
       - name: nodejs-app
         image: ghcr.io/sumansaurabh/task-bb/backend:latest
+        imagePullPolicy: Always  # ✅ Add this for latest tag
         ports:
         - containerPort: 3000
         env:
