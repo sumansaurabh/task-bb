@@ -67,6 +67,15 @@ app.get('/lro-status', async (req, res) => {
     }
 });
 
+/**
+ * Marks a Kubernetes pod as LRO (Long Running Operation) active.
+ *
+ * This function retrieves the pod name and namespace from environment variables, constructs a patch object to update the pod's annotations, and attempts to apply the patch using the Kubernetes API. It handles both object-based and positional parameter approaches for compatibility with different API versions. Errors are logged and rethrown for further handling.
+ *
+ * @param {void}
+ * @returns {Promise<any>} The response from the Kubernetes API after marking the pod as LRO active.
+ * @throws {Error} If the pod name or namespace is null or undefined, or if the API call fails.
+ */
 async function markPodAsLRO() {
     try {
         const k8s = require('@kubernetes/client-node');
@@ -144,6 +153,16 @@ async function markPodAsLRO() {
     }
 }
 
+/**
+ * Unmarks a Kubernetes pod as LRO active by removing its corresponding annotation.
+ *
+ * The function retrieves the pod name and namespace from environment variables, constructs a patch object to remove the annotation,
+ * and attempts to apply the patch using the Kubernetes API. It handles both object-based and positional parameter approaches
+ * for compatibility with different API versions. Errors during the process are logged and rethrown.
+ *
+ * @returns The response from the Kubernetes API after unmarking the pod.
+ * @throws Error If the pod name or namespace is null or undefined, or if an error occurs during the API call.
+ */
 async function unmarkPodAsLRO() {
     try {
         const k8s = require('@kubernetes/client-node');
