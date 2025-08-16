@@ -80,6 +80,14 @@ app.get('/lro-status', async (req, res) => {
     }
 });
 
+/**
+ * Marks a Kubernetes pod as LRO (Long Running Operation) active.
+ *
+ * This function retrieves the pod name and namespace from environment variables, constructs a JSON Patch object to update the pod's annotations, and applies the patch using the Kubernetes API. If the patch fails due to unsupported media type, it attempts to use a strategic merge patch as a fallback.
+ *
+ * @returns The response from the Kubernetes API after marking the pod as LRO active.
+ * @throws Error If the pod name or namespace is null or undefined, or if the patch operation fails.
+ */
 async function markPodAsLRO() {
     try {
         const k8s = require('@kubernetes/client-node');
@@ -155,6 +163,13 @@ async function markPodAsLRO() {
     }
 }
 
+/**
+ * Marks a Kubernetes pod as LRO active using a strategic merge patch.
+ *
+ * This function retrieves the current state of a specified pod and checks for existing annotations.
+ * If annotations are absent, it creates them before applying a merge patch to mark the pod as LRO active.
+ * The function utilizes the Kubernetes client to interact with the API and handles errors during the process.
+ */
 async function markPodAsLROWithMergePatch() {
     try {
         const k8s = require('@kubernetes/client-node');
@@ -214,6 +229,16 @@ async function markPodAsLROWithMergePatch() {
     }
 }
 
+/**
+ * Unmarks a Kubernetes pod as LRO active by removing its annotation.
+ *
+ * This function retrieves the pod name and namespace from environment variables, validates their presence,
+ * and then applies a JSON Patch to remove the specified annotation. If the removal fails due to the
+ * annotation not existing, it attempts to set the annotation to false using a fallback function.
+ *
+ * @returns The response from the Kubernetes API after attempting to unmark the pod.
+ * @throws Error If the pod name or namespace is null or undefined, or if an error occurs during the API call.
+ */
 async function unmarkPodAsLRO() {
     try {
         const k8s = require('@kubernetes/client-node');
@@ -275,6 +300,13 @@ async function unmarkPodAsLRO() {
     }
 }
 
+/**
+ * Unmarks a pod as LRO (Long Running Operation) using a strategic merge patch.
+ *
+ * This function retrieves the pod name and namespace from environment variables, constructs a patch to set the
+ * 'app.company.com/lro-active' annotation to 'false', and applies this patch to the specified pod using the
+ * Kubernetes API. It handles errors by logging them and rethrowing the error for further handling.
+ */
 async function unmarkPodAsLROWithMergePatch() {
     try {
         const k8s = require('@kubernetes/client-node');
