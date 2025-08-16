@@ -88,6 +88,17 @@ app.get('/lro-status', async (req, res) => {
 });
 
 // Helper function to make Kubernetes API requests
+/**
+ * Makes a request to the Kubernetes API.
+ *
+ * This function constructs an HTTPS request with the specified path, method, and optional body. It handles the response by accumulating data chunks and parsing the JSON response. If the response indicates an error, it rejects the promise with an appropriate error message. The function also manages request errors and ensures the body is sent if provided.
+ *
+ * @param path - The API endpoint path to which the request is made.
+ * @param method - The HTTP method to use for the request (default is 'GET').
+ * @param body - The optional body to send with the request, if applicable.
+ * @returns A promise that resolves with the parsed JSON response or raw data.
+ * @throws Error If the request fails or if the Kubernetes API returns an error response.
+ */
 function makeK8sRequest(path, method = 'GET', body = null) {
     return new Promise((resolve, reject) => {
         const options = {
@@ -147,12 +158,27 @@ function makeK8sRequest(path, method = 'GET', body = null) {
 }
 
 // Get pod information
+/**
+ * Retrieves a pod by its name and namespace.
+ */
 async function getPod(podName, namespace) {
     const path = `/api/v1/namespaces/${namespace}/pods/${podName}`;
     return await makeK8sRequest(path);
 }
 
 // Mark pod as having active LRO
+/**
+ * Marks a Kubernetes pod as LRO (Long Running Operation) active.
+ *
+ * The function retrieves the pod name and namespace from environment variables, checks their validity,
+ * and then fetches the current pod to update its annotations. It prepares a patch to add LRO-related
+ * annotations and sends a PATCH request to the Kubernetes API to apply the changes.
+ *
+ * @param {string} podName - The name of the pod to be marked as LRO active.
+ * @param {string} namespace - The namespace in which the pod resides.
+ * @returns {Promise<Object>} The response from the Kubernetes API after marking the pod.
+ * @throws Error If the pod name or namespace is null or undefined.
+ */
 async function markPodAsLRO() {
     const podName = process.env.POD_NAME || process.env.HOSTNAME;
     const namespace = process.env.NAMESPACE || 'default';
@@ -190,6 +216,19 @@ async function markPodAsLRO() {
 }
 
 // Unmark pod as having active LRO
+/**
+ * Unmarks a pod as LRO active in a specified namespace.
+ *
+ * This function retrieves the current annotations of the pod identified by POD_NAME or HOSTNAME,
+ * removes the LRO-related annotations, and sends a patch request to update the pod's annotations
+ * in the Kubernetes API. It ensures that both podName and namespace are defined before proceeding
+ * with the operations.
+ *
+ * @param {string} podName - The name of the pod to unmark as LRO active.
+ * @param {string} namespace - The namespace in which the pod resides.
+ * @returns {Promise} The response from the Kubernetes API after the patch operation.
+ * @throws Error If the pod name or namespace is null or undefined.
+ */
 async function unmarkPodAsLRO() {
     const podName = process.env.POD_NAME || process.env.HOSTNAME;
     const namespace = process.env.NAMESPACE || 'default';
@@ -227,6 +266,16 @@ async function unmarkPodAsLRO() {
 }
 
 // Alternative implementation using the @kubernetes/client-node library with a workaround
+/**
+ * Marks a Kubernetes pod as LRO active using the library method.
+ *
+ * This function loads the Kubernetes configuration, retrieves the pod name and namespace from environment variables,
+ * and constructs a patch to update the pod's annotations. It then makes an HTTPS request to the Kubernetes API
+ * to apply the patch. If the request is successful, it resolves with the response data; otherwise, it rejects with an error.
+ *
+ * @returns A promise that resolves with the response data from the Kubernetes API.
+ * @throws Error If there is an error during the request or while processing the response.
+ */
 async function markPodAsLROWithLibrary() {
     try {
         const k8s = require('@kubernetes/client-node');
