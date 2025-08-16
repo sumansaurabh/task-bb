@@ -5,16 +5,12 @@ metadata:
   annotations:
     traefik.ingress.kubernetes.io/redirect-entry-point: https
     traefik.ingress.kubernetes.io/redirect-permanent: "true"
-    # Essential for streaming/SSE
+    # Essential for streaming/SSE - using only basic annotations for now
     traefik.ingress.kubernetes.io/buffering: "false"
-    # Disable response buffering for real-time streaming
-    nginx.ingress.kubernetes.io/proxy-buffering: "off"
     # Set read timeout for long-running connections
     traefik.ingress.kubernetes.io/timeout: "3600"
     # Keep connections alive for streaming
     traefik.ingress.kubernetes.io/connection-header: "keep-alive"
-    # Use custom middleware for streaming
-    traefik.ingress.kubernetes.io/router.middlewares: default-streaming-headers@kubernetescrd,default-streaming-buffering@kubernetescrd
 spec:
   tls:
   - hosts:
