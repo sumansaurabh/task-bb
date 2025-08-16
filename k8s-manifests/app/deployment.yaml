@@ -57,7 +57,7 @@ spec:
       serviceAccountName: nodejs-service-account  # ✅ Fixed name
       containers:
       - name: nodejs-app
-        image: ghcr.io/sumansaurabh/task-bb/backend:latest
+        image: ghcr.io/sumansaurabh/task-bb/backend
         imagePullPolicy: Always  # ✅ Added
         ports:
         - containerPort: 3000
