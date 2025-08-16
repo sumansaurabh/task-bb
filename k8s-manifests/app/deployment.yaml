@@ -44,8 +44,8 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 2        # Only 2 pods down at a time
-      maxSurge: 3              # Can have 3 extra pods during update
+      maxUnavailable: 2
+      maxSurge: 3
   selector:
     matchLabels:
       app: nodejs-app
@@ -53,13 +53,12 @@ spec:
     metadata:
       labels:
         app: nodejs-app
-        version: "main-48f891c"   # Current version
     spec:
-      serviceAccountName: nodejs-service-account  # Add this line
+      serviceAccountName: nodejs-service-account  # ✅ Fixed name
       containers:
       - name: nodejs-app
         image: ghcr.io/sumansaurabh/task-bb/backend:latest
-        imagePullPolicy: Always  # ✅ Add this for latest tag
+        imagePullPolicy: Always  # ✅ Added
         ports:
         - containerPort: 3000
         env:
@@ -69,14 +68,14 @@ spec:
           value: "3000"
         - name: VERSION
           value: "latest"
-        - name: POD_NAME              # ← ADD THIS
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: NAMESPACE
+        - name: NAMESPACE  # ✅ Added
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: POD_NAME   # ✅ Added - This was missing!
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
         resources:
           requests:
             memory: "128Mi"
@@ -90,25 +89,19 @@ spec:
             port: 3000
           initialDelaySeconds: 30
           periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
         readinessProbe:
           httpGet:
             path: /api/health
             port: 3000
           initialDelaySeconds: 10
           periodSeconds: 5
-          timeoutSeconds: 3
-          successThreshold: 1
-          failureThreshold: 3
-        # Graceful shutdown with LRO awareness
         lifecycle:
           preStop:
             exec:
               command: ["/bin/bash", "-c", "
-                # Check if LRO is active via annotation
-                POD_NAME=$HOSTNAME;
+                POD_NAME=${POD_NAME};
                 NAMESPACE=${NAMESPACE:-default};
+                echo 'Checking LRO status for pod:' $POD_NAME;
                 LRO_ACTIVE=$(kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.metadata.annotations.app\\.company\\.com/lro-active}' 2>/dev/null || echo '');
                 if [ '$LRO_ACTIVE' = 'true' ]; then
                   echo 'LRO active, waiting for completion...';
@@ -119,7 +112,6 @@ spec:
                 fi;
                 echo 'Safe to terminate - sleeping 15s for graceful shutdown';
                 sleep 15;"]
-      # Ensure pods are distributed across nodes if you have multiple
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -132,7 +124,7 @@ spec:
                   values:
                   - nodejs-app
               topologyKey: kubernetes.io/hostname
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 300  # 5 minutes for LRO
 ---
 apiVersion: v1
 kind: Service
@@ -148,4 +140,3 @@ spec:
     port: 80
     targetPort: 3000
   type: ClusterIP
-  sessionAffinity: None

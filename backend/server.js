@@ -74,8 +74,21 @@ async function markPodAsLRO() {
         kc.loadFromCluster();
         const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
         
-        const podName = process.env.POD_NAME || process.env.HOSTNAME; // Use POD_NAME first
+        const podName = process.env.POD_NAME || process.env.HOSTNAME;
         const namespace = process.env.NAMESPACE || 'default';
+        
+        // Debug logging
+        console.log('Environment variables:', {
+            POD_NAME: process.env.POD_NAME,
+            HOSTNAME: process.env.HOSTNAME,
+            NAMESPACE: process.env.NAMESPACE,
+            podName: podName,
+            namespace: namespace
+        });
+        
+        if (!podName) {
+            throw new Error('Pod name is undefined - check POD_NAME environment variable');
+        }
         
         console.log(`Marking pod ${podName} as LRO active`);
         
