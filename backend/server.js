@@ -32,6 +32,16 @@ app.post('/start-lro', async (req, res) => {
     res.json({ status: 'LRO started' });
 });
 
+app.post('/end-lro', async (req, res) => {
+    // Mark this pod as having active LRO
+    await unmarkPodAsLRO();
+    
+    // Start your long-running operation
+    startLongRunningOperation();
+    
+    res.json({ status: 'LRO started' });
+});
+
 async function markPodAsLRO() {
     const k8s = require('@kubernetes/client-node');
     const kc = new k8s.KubeConfig();
