@@ -87,7 +87,15 @@ def make_request():
             print(f"Error: {e}")
 
 async def run_async_load_test():
-    """Run the load test using async/await for maximum performance"""
+    """Run an asynchronous load test for maximum performance.
+    
+    This function initiates a load test by sending a specified number of  requests
+    concurrently, while respecting a defined limit on the number  of concurrent
+    connections. It utilizes asyncio and aiohttp to manage  the requests
+    efficiently. The function also checks for a run duration  limit to stop
+    scheduling new requests if the specified time is exceeded.  Finally, it
+    calculates and prints the total time taken for the test.
+    """
     print(f"Starting ASYNC load test...")
     print(f"URL: {URL}")
     print(f"Total requests: {NUM_REQUESTS}")
@@ -127,7 +135,14 @@ async def run_async_load_test():
     print_results(total_time)
 
 def run_load_test():
-    """Run the load test with multiple threads (sync version)"""
+    """Run a load test with multiple threads.
+    
+    This function initiates a threaded load test by printing the test parameters,
+    including the URL, total number of requests, and concurrent threads. It uses a
+    ThreadPoolExecutor to manage the concurrent execution of requests, stopping if
+    the specified RUN_DURATION is reached. After all requests are completed, it
+    calculates and prints the results.
+    """
     print(f"Starting THREADED load test...")
     print(f"URL: {URL}")
     print(f"Total requests: {NUM_REQUESTS}")
