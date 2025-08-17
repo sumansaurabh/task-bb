@@ -131,8 +131,8 @@ app.post('/start-lro', async (req, res) => {
         // Send initial message
         res.write(`data: ${JSON.stringify({ message: 'LRO started', count: 0 })}\n\n`);
 
-        // Create interval to send numbers 1 to 10000 every second
-        const interval = setInterval(() => {
+        // Create interval to send numbers 1 to 200 every second
+        const interval = setInterval(async () => {
             if (counter <= maxCount) {
                 const data = {
                     count: counter,
@@ -148,8 +148,10 @@ app.post('/start-lro', async (req, res) => {
                 counter++;
             } else {
                 // Send completion message
+                await unmarkPodAsLRO();
+
                 res.write(`data: ${JSON.stringify({ 
-                    message: 'LRO completed', 
+                    message: 'LRO completed pod ' + podName + ' marked as inactive', 
                     count: maxCount, 
                     completed: true 
                 })}\n\n`);
