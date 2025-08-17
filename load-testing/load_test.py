@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""
+Simple Load Testing Script
+Usage: python load_test.py
+"""
+
+import requests
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
+import statistics
+
+# Configuration
+URL = "https://bb-basic-test-865238481351.europe-west1.run.app/"  # Change this to your target URL
+NUM_REQUESTS = 100
+CONCURRENT_THREADS = 10
+TIMEOUT = 10  # seconds
+
+# Global variables to store results
+results = []
+errors = []
+
+def make_request():
+    """Make a single HTTP request and record the response time"""
+    try:
+        start_time = time.time()
+        response = requests.get(URL, timeout=TIMEOUT)
+        end_time = time.time()
+        
+        response_time = (end_time - start_time) * 1000  # Convert to milliseconds
+        
+        # Store result
+        result = {
+            'status_code': response.status_code,
+            'response_time': response_time,
+            'success': response.status_code == 200
+        }
+        results.append(result)
+        
+        # Print progress
+        print(f"Request {len(results)}: {response.status_code} - {response_time:.2f}ms")
+        
+    except Exception as e:
+        errors.append(str(e))
+        print(f"Error: {e}")
+
+def run_load_test():
+    """Run the load test with multiple threads"""
+    print(f"Starting load test...")
+    print(f"URL: {URL}")
+    print(f"Total requests: {NUM_REQUESTS}")
+    print(f"Concurrent threads: {CONCURRENT_THREADS}")
+    print("-" * 50)
+    
+    start_time = time.time()
+    
+    # Use ThreadPoolExecutor to manage concurrent requests
+    with ThreadPoolExecutor(max_workers=CONCURRENT_THREADS) as executor:
+        futures = [executor.submit(make_request) for _ in range(NUM_REQUESTS)]
+        
+        # Wait for all requests to complete
+        for future in futures:
+            future.result()
+    
+    end_time = time.time()
+    total_time = end_time - start_time
+    
+    # Calculate statistics
+    print_results(total_time)
+
+def print_results(total_time):
+    """Print test results and statistics"""
+    print("\n" + "=" * 50)
+    print("LOAD TEST RESULTS")
+    print("=" * 50)
+    
+    if not results:
+        print("No successful requests!")
+        return
+    
+    # Basic stats
+    total_requests = len(results) + len(errors)
+    successful_requests = len(results)
+    failed_requests = len(errors)
+    
+    print(f"Total requests: {total_requests}")
+    print(f"Successful requests: {successful_requests}")
+    print(f"Failed requests: {failed_requests}")
+    print(f"Success rate: {(successful_requests/total_requests)*100:.2f}%")
+    print(f"Total time: {total_time:.2f} seconds")
+    print(f"Requests per second: {total_requests/total_time:.2f}")
+    
+    # Response time statistics
+    response_times = [r['response_time'] for r in results]
+    if response_times:
+        print(f"\nResponse Time Statistics:")
+        print(f"Average: {statistics.mean(response_times):.2f}ms")
+        print(f"Median: {statistics.median(response_times):.2f}ms")
+        print(f"Min: {min(response_times):.2f}ms")
+        print(f"Max: {max(response_times):.2f}ms")
+    
+    # Status code breakdown
+    status_codes = {}
+    for result in results:
+        code = result['status_code']
+        status_codes[code] = status_codes.get(code, 0) + 1
+    
+    print(f"\nStatus Code Breakdown:")
+    for code, count in status_codes.items():
+        print(f"  {code}: {count} requests")
+    
+    # Show errors if any
+    if errors:
+        print(f"\nErrors:")
+        for error in set(errors):  # Remove duplicates
+            count = errors.count(error)
+            print(f"  {error}: {count} times")
+
+if __name__ == "__main__":
+    print("Simple Load Testing Script")
+    print("To change the URL, edit the URL variable in the script")
+    print("Current URL:", URL)
+    
+    # Ask user if they want to proceed or change URL
+    choice = input(f"\nPress Enter to test {URL} or type a new URL: ").strip()
+    if choice:
+        URL = choice
+    
+    try:
+        run_load_test()
+    except KeyboardInterrupt:
+        print("\nTest interrupted by user")
+    except Exception as e:
+        print(f"Test failed: {e}")
