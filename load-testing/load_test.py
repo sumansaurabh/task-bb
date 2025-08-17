@@ -7,21 +7,61 @@ Usage: python load_test.py
 import requests
 import time
 import threading
-from concurrent.futures import ThreadPoolExecutor
+import os
+import multiprocessing as mp
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import statistics
+import asyncio
+import aiohttp
+
+# Auto-detect optimal settings based on system
+CPU_CORES = os.cpu_count()
+OPTIMAL_THREADS = CPU_CORES * 4  # 4x cores is often optimal for I/O bound tasks
 
 # Configuration
 URL = "https://bb-basic-test-865238481351.europe-west1.run.app/"  # Change this to your target URL
-NUM_REQUESTS = 100
-CONCURRENT_THREADS = 10
+NUM_REQUESTS = 1000  # Increased for high-performance systems
+CONCURRENT_THREADS = min(OPTIMAL_THREADS, 120)  # Cap at 120 to avoid overwhelming
+USE_ASYNC = True  # Use async for even better performance
 TIMEOUT = 10  # seconds
 
-# Global variables to store results
+print(f"System detected: {CPU_CORES} CPU cores")
+print(f"Optimal threads calculated: {CONCURRENT_THREADS}")
+
+# Global variables to store results (thread-safe)
 results = []
 errors = []
+results_lock = threading.Lock()
+
+async def make_async_request(session, semaphore):
+    """Make an async HTTP request with semaphore for concurrency control"""
+    async with semaphore:
+        try:
+            start_time = time.time()
+            async with session.get(URL, timeout=aiohttp.ClientTimeout(total=TIMEOUT)) as response:
+                await response.text()  # Read response body
+                end_time = time.time()
+                
+                response_time = (end_time - start_time) * 1000  # Convert to milliseconds
+                
+                # Store result (thread-safe)
+                result = {
+                    'status_code': response.status,
+                    'response_time': response_time,
+                    'success': response.status == 200
+                }
+                
+                with results_lock:
+                    results.append(result)
+                    print(f"Request {len(results)}: {response.status} - {response_time:.2f}ms")
+                
+        except Exception as e:
+            with results_lock:
+                errors.append(str(e))
+                print(f"Error: {e}")
 
 def make_request():
-    """Make a single HTTP request and record the response time"""
+    """Make a single HTTP request and record the response time (sync version)"""
     try:
         start_time = time.time()
         response = requests.get(URL, timeout=TIMEOUT)
@@ -29,24 +69,53 @@ def make_request():
         
         response_time = (end_time - start_time) * 1000  # Convert to milliseconds
         
-        # Store result
+        # Store result (thread-safe)
         result = {
             'status_code': response.status_code,
             'response_time': response_time,
             'success': response.status_code == 200
         }
-        results.append(result)
         
-        # Print progress
-        print(f"Request {len(results)}: {response.status_code} - {response_time:.2f}ms")
+        with results_lock:
+            results.append(result)
+            print(f"Request {len(results)}: {response.status_code} - {response_time:.2f}ms")
         
     except Exception as e:
-        errors.append(str(e))
-        print(f"Error: {e}")
+        with results_lock:
+            errors.append(str(e))
+            print(f"Error: {e}")
+
+async def run_async_load_test():
+    """Run the load test using async/await for maximum performance"""
+    print(f"Starting ASYNC load test...")
+    print(f"URL: {URL}")
+    print(f"Total requests: {NUM_REQUESTS}")
+    print(f"Concurrent connections: {CONCURRENT_THREADS}")
+    print("-" * 50)
+    
+    start_time = time.time()
+    
+    # Create semaphore to limit concurrent connections
+    semaphore = asyncio.Semaphore(CONCURRENT_THREADS)
+    
+    # Create aiohttp session
+    connector = aiohttp.TCPConnector(limit=CONCURRENT_THREADS, limit_per_host=CONCURRENT_THREADS)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        # Create all tasks
+        tasks = [make_async_request(session, semaphore) for _ in range(NUM_REQUESTS)]
+        
+        # Run all tasks concurrently
+        await asyncio.gather(*tasks)
+    
+    end_time = time.time()
+    total_time = end_time - start_time
+    
+    # Calculate statistics
+    print_results(total_time)
 
 def run_load_test():
-    """Run the load test with multiple threads"""
-    print(f"Starting load test...")
+    """Run the load test with multiple threads (sync version)"""
+    print(f"Starting THREADED load test...")
     print(f"URL: {URL}")
     print(f"Total requests: {NUM_REQUESTS}")
     print(f"Concurrent threads: {CONCURRENT_THREADS}")
@@ -89,6 +158,7 @@ def print_results(total_time):
     print(f"Success rate: {(successful_requests/total_requests)*100:.2f}%")
     print(f"Total time: {total_time:.2f} seconds")
     print(f"Requests per second: {total_requests/total_time:.2f}")
+    print(f"CPU utilization: ~{(CONCURRENT_THREADS/CPU_CORES)*100:.1f}% of available cores")
     
     # Response time statistics
     response_times = [r['response_time'] for r in results]
@@ -117,7 +187,9 @@ def print_results(total_time):
             print(f"  {error}: {count} times")
 
 if __name__ == "__main__":
-    print("Simple Load Testing Script")
+    print("High-Performance Load Testing Script")
+    print(f"System: {CPU_CORES} CPU cores detected")
+    print(f"Optimized for: {CONCURRENT_THREADS} concurrent connections")
     print("To change the URL, edit the URL variable in the script")
     print("Current URL:", URL)
     
@@ -126,8 +198,20 @@ if __name__ == "__main__":
     if choice:
         URL = choice
     
+    # Ask user which mode to use
+    print("\nChoose load test mode:")
+    print("1. Async (fastest, recommended for high-core systems)")
+    print("2. Threaded (traditional, good compatibility)")
+    
+    mode_choice = input("Enter choice (1 or 2, default=1): ").strip()
+    
     try:
-        run_load_test()
+        if mode_choice == "2":
+            USE_ASYNC = False
+            run_load_test()
+        else:
+            USE_ASYNC = True
+            asyncio.run(run_async_load_test())
     except KeyboardInterrupt:
         print("\nTest interrupted by user")
     except Exception as e:
