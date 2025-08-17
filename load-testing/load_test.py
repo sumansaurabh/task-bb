@@ -24,6 +24,7 @@ NUM_REQUESTS = 1000  # Increased for high-performance systems
 CONCURRENT_THREADS = min(OPTIMAL_THREADS, 120)  # Cap at 120 to avoid overwhelming
 USE_ASYNC = True  # Use async for even better performance
 TIMEOUT = 10  # seconds
+RUN_DURATION = 0  # seconds; 0 means no time limit
 
 print(f"System detected: {CPU_CORES} CPU cores")
 print(f"Optimal threads calculated: {CONCURRENT_THREADS}")
@@ -101,11 +102,23 @@ async def run_async_load_test():
     # Create aiohttp session
     connector = aiohttp.TCPConnector(limit=CONCURRENT_THREADS, limit_per_host=CONCURRENT_THREADS)
     async with aiohttp.ClientSession(connector=connector) as session:
-        # Create all tasks
-        tasks = [make_async_request(session, semaphore) for _ in range(NUM_REQUESTS)]
-        
-        # Run all tasks concurrently
-        await asyncio.gather(*tasks)
+        # Schedule tasks but stop scheduling when RUN_DURATION is exceeded (if set)
+        tasks = []
+        for i in range(NUM_REQUESTS):
+            if RUN_DURATION and (time.time() - start_time) >= RUN_DURATION:
+                print(f"Run duration {RUN_DURATION}s reached, stopping scheduling new requests (scheduled {len(tasks)} requests).")
+                break
+            # create task that will respect the semaphore
+            tasks.append(asyncio.create_task(make_async_request(session, semaphore)))
+            # yield occasionally to the event loop to avoid starvation
+            if i % 100 == 0:
+                await asyncio.sleep(0)
+
+        # Run scheduled tasks (if any)
+        if tasks:
+            await asyncio.gather(*tasks)
+        else:
+            print("No tasks were scheduled due to run duration limit.")
     
     end_time = time.time()
     total_time = end_time - start_time
@@ -125,9 +138,14 @@ def run_load_test():
     
     # Use ThreadPoolExecutor to manage concurrent requests
     with ThreadPoolExecutor(max_workers=CONCURRENT_THREADS) as executor:
-        futures = [executor.submit(make_request) for _ in range(NUM_REQUESTS)]
-        
-        # Wait for all requests to complete
+        futures = []
+        for i in range(NUM_REQUESTS):
+            if RUN_DURATION and (time.time() - start_time) >= RUN_DURATION:
+                print(f"Run duration {RUN_DURATION}s reached, stopping scheduling new requests (scheduled {len(futures)} requests).")
+                break
+            futures.append(executor.submit(make_request))
+
+        # Wait for all scheduled requests to complete
         for future in futures:
             future.result()
     
@@ -204,6 +222,16 @@ if __name__ == "__main__":
     print("2. Threaded (traditional, good compatibility)")
     
     mode_choice = input("Enter choice (1 or 2, default=1): ").strip()
+    
+    # Ask user for optional run duration
+    duration_choice = input("Optional: stop after N seconds (0 = no limit, default=0): ").strip()
+    try:
+        duration_val = float(duration_choice) if duration_choice else 0
+        if duration_val < 0:
+            duration_val = 0
+    except Exception:
+        duration_val = 0
+    RUN_DURATION = duration_val
     
     try:
         if mode_choice == "2":
