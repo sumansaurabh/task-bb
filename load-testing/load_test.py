@@ -20,7 +20,7 @@ OPTIMAL_THREADS = CPU_CORES * 4  # 4x cores is often optimal for I/O bound tasks
 
 # Configuration
 URL = "https://bb-basic-test-865238481351.europe-west1.run.app/"  # Change this to your target URL
-NUM_REQUESTS = 10000  # Increased for high-performance systems
+NUM_REQUESTS = 20000  # Increased for high-performance systems
 CONCURRENT_THREADS = min(OPTIMAL_THREADS, 120)  # Cap at 120 to avoid overwhelming
 USE_ASYNC = True  # Use async for even better performance
 TIMEOUT = 10  # seconds
