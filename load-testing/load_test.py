@@ -54,7 +54,7 @@ async def make_async_request(session, semaphore):
                 
                 with results_lock:
                     results.append(result)
-                    if len(results) % 500 == 0:
+                    if len(results) % 2000 == 0:
                         print(f"Request {len(results)}: {response.status} - {response_time:.2f}ms")
 
         except Exception as e:
