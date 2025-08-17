@@ -21,7 +21,7 @@ results = []
 errors = []
 
 def make_request():
-    """Make a single HTTP request and record the response time"""
+    """Make a single HTTP request and record the response time."""
     try:
         start_time = time.time()
         response = requests.get(URL, timeout=TIMEOUT)
@@ -45,7 +45,7 @@ def make_request():
         print(f"Error: {e}")
 
 def run_load_test():
-    """Run the load test with multiple threads"""
+    """Run the load test with multiple threads."""
     print(f"Starting load test...")
     print(f"URL: {URL}")
     print(f"Total requests: {NUM_REQUESTS}")
@@ -69,7 +69,17 @@ def run_load_test():
     print_results(total_time)
 
 def print_results(total_time):
-    """Print test results and statistics"""
+    """Print test results and statistics.
+    
+    This function displays the results of a load test, including the total  number
+    of requests, successful and failed requests, success rate, and  total time
+    taken. It also provides response time statistics such as  average, median,
+    minimum, and maximum response times. Additionally,  it breaks down the status
+    codes of the requests and lists any errors  encountered during the test.
+    
+    Args:
+        total_time (float): The total time taken for the load test in seconds.
+    """
     print("\n" + "=" * 50)
     print("LOAD TEST RESULTS")
     print("=" * 50)
