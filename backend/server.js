@@ -26,7 +26,7 @@ try {
 
 // Routes
 app.get('/', (req, res) => {
-    res.json({ message: 'Hello World! Suman\'s hello world Minimalist Express Server is running.' });
+    res.json({ message: 'Hello World! Suman\'s hello world minimalist Express Server is running.' });
 });
 
 app.get('/api/health', (req, res) => {
