@@ -35,7 +35,7 @@ errors = []
 results_lock = threading.Lock()
 
 async def make_async_request(session, semaphore):
-    """Make an async HTTP request with semaphore for concurrency control"""
+    """Make an async HTTP request with semaphore for concurrency control."""
     async with semaphore:
         try:
             start_time = time.time()
