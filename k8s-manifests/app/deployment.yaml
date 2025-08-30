@@ -1,9 +1,35 @@
 # Service Account for API access
 apiVersion: v1
+kind: Secret
+metadata:
+  name: harbor-registry-secret
+  namespace: default
+type: kubernetes.io/dockerconfigjson
+data:
+  # Base64 encoded docker config for harbor.bareflux.co with admin/admin
+  .dockerconfigjson: eyJhdXRocyI6eyJoYXJib3IuYmFyZWZsdXguY28iOnsidXNlcm5hbWUiOiJhZG1pbiIsInBhc3N3b3JkIjoiYWRtaW4iLCJlbWFpbCI6ImFkbWluQGV4YW1wbGUuY29tIiwiYXV0aCI6IllXUnRhVzQ2WVdSdGFXND0ifX19
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-env-secrets
+  namespace: default
+type: Opaque
+data:
+  # Add your private environment variables here (base64 encoded)
+  # Example: DATABASE_PASSWORD: <base64-encoded-password>
+  # Example: API_KEY: <base64-encoded-api-key>
+  DATABASE_URL: "cG9zdGdyZXNxbDovL3VzZXI6cGFzc0Bsb2NhbGhvc3Q6NTQzMi9kYXRhYmFzZQ=="  # placeholder: postgresql://user:pass@localhost:5432/database
+  API_SECRET: "bXktYXBpLXNlY3JldC1rZXk="    # placeholder: my-api-secret-key
+  JWT_SECRET: "bXktand0LXNlY3JldC1rZXk="    # placeholder: my-jwt-secret-key
+---
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: nodejs-service-account
   namespace: default
+imagePullSecrets:
+- name: harbor-registry-secret
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -54,11 +80,13 @@ spec:
       labels:
         app: nodejs-app
     spec:
-      serviceAccountName: nodejs-service-account  # ✅ Fixed name
+      serviceAccountName: nodejs-service-account
+      imagePullSecrets:
+      - name: harbor-registry-secret
       containers:
       - name: nodejs-app
-        image: ghcr.io/sumansaurabh/task-bb/backend
-        imagePullPolicy: Always  # ✅ Added
+        image: harbor.bareflux.co/vibe-coding/vibe-coding-platform:optimisation-safari-focus
+        imagePullPolicy: Always
         ports:
         - containerPort: 3000
         env:
@@ -68,14 +96,30 @@ spec:
           value: "3000"
         - name: VERSION
           value: "latest"
-        - name: NAMESPACE  # ✅ Added
+        - name: NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        - name: POD_NAME   # ✅ Added - This was missing!
+        - name: POD_NAME
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        # Private environment variables from secrets
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: app-env-secrets
+              key: DATABASE_URL
+        - name: API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: app-env-secrets
+              key: API_SECRET
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: app-env-secrets
+              key: JWT_SECRET
         resources:
           requests:
             memory: "128Mi"

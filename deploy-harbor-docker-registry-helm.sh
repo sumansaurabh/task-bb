@@ -104,11 +104,11 @@ expose:
     hosts:
       core: $HARBOR_URL
     controller: default
-    className: nginx
+    className: traefik
     annotations:
       cert-manager.io/cluster-issuer: "letsencrypt-prod"
-      nginx.ingress.kubernetes.io/ssl-redirect: "true"
-      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+      traefik.ingress.kubernetes.io/ssl-redirect: "true"
+      traefik.ingress.kubernetes.io/router.middlewares: "default-harbor-timeout@kubernetescrd"
 
 externalURL: https://$HARBOR_URL
 
@@ -134,12 +134,41 @@ chartmuseum:
 
 core:
   replicas: 1
+  configureUserSettings: |
+    {
+      "http_timeout": 300,
+      "proxy_connect_timeout": 600,
+      "proxy_send_timeout": 600,
+      "proxy_read_timeout": 600
+    }
 
 portal:
   replicas: 1
 
 registry:
   replicas: 1
+  middleware:
+    cloudFront:
+      baseurl: ""
+      keypairid: ""
+      duration: "20m"
+      ipfilteredby: "none"
+    redirect:
+      disable: false
+    storage:
+      cache:
+        blobdescriptor: "inmemory"
+      delete:
+        enabled: true
+      redirect:
+        disable: false
+    http:
+      timeout:
+        read: "300s"
+        write: "300s"
+        idle: "300s"
+      relativeurls: false
+      draintimeout: "60s"
 
 persistence:
   enabled: true
