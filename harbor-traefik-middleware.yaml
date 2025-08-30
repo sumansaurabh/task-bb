@@ -4,10 +4,6 @@ metadata:
   name: harbor-timeout
   namespace: default
 spec:
-  forwardAuth:
-    responseHeaders:
-      - "X-Forwarded-Proto"
-      - "X-Forwarded-Host"
   headers:
     customRequestHeaders:
       X-Forwarded-Proto: "https"
@@ -16,7 +12,6 @@ spec:
       X-Content-Type-Options: "nosniff"
   buffering:
     maxRequestBodyBytes: 0
-    retryExpression: "IsNetworkError() && Attempts() <= 2"
   retry:
     attempts: 3
     initialInterval: "100ms"
