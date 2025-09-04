@@ -92,7 +92,7 @@ spec:
       - name: harbor-registry-secret
       containers:
       - name: nodejs-app
-        image: harbor.bareflux.co/vibe-coding/vibe-coding-platform@sha256:751a3a36b6eccfc7572b00967fd7afece43ac0687e2f64c163782a91bd5448c2
+        image: harbor.bareflux.co/vibe-coding/vibe-coding-platform@sha256:a5ff246bba2a582f7a37cf6448d342d21364e360e35c20ee30cb0e235ac5222f
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
