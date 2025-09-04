@@ -803,3 +803,11 @@ EOF
 print_success "Bank-Vaults setup completed!"
 print_success "Info saved to vault-info.txt"
 print_warning "IMPORTANT: Run ./setup-secrets.sh to add your secrets"
+
+
+# kubectl create namespace vault-infra
+
+# helm upgrade --install vault-secrets-webhook \
+#   oci://ghcr.io/bank-vaults/helm-charts/vault-secrets-webhook \
+#   --namespace vault-infra \
+#   --wait
