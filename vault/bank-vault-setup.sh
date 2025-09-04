@@ -227,7 +227,7 @@ metadata:
 spec:
   size: ${VAULT_SIZE}
   image: hashicorp/vault:1.17.2
-  bankVaultsImage: ghcr.io/bank-vaults/bank-vaults:v1.21.0
+  bankVaultsImage: ghcr.io/bank-vaults/bank-vaults:v1.31.3
   
   # Service Account
   serviceAccount: vault
