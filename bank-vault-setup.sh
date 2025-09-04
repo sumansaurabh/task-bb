@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# Bank-Vaults (Banzai Cloud) Deployment Script for K3s
+# Bank-Vaults (bank-vaults.dev) Deployment Script for K3s
+# Updated for latest Bank-Vaults architecture with OCI registry
 # Secure deployment without hardcoded secrets
 
 set -e
@@ -17,6 +18,7 @@ print_header() {
     echo -e "${PURPLE}"
     echo "🔐 =================================="
     echo "   BANK-VAULTS DEPLOYMENT"
+    echo "   (Updated for bank-vaults.dev)"
     echo "   =================================="
     echo -e "${NC}"
 }
@@ -70,9 +72,13 @@ fi
 echo ""
 print_step "Configuration Summary:"
 echo "Vault URL: https://$VAULT_DOMAIN"
-echo "Auto-unsealing: Enabled"
+echo "Auto-unsealing: Enabled (Kubernetes secrets)"
+echo "Storage Backend: File (for dev) / Raft (for production)"
 echo "Secrets: Will be added securely after deployment"
 echo ""
+
+read -p "Deploy production-ready HA cluster with Raft? (y/N): " HA_MODE
+HA_MODE=${HA_MODE:-n}
 
 read -p "Continue with Bank-Vaults deployment? (y/N): " confirm
 if [[ $confirm != [yY] ]]; then
@@ -80,57 +86,78 @@ if [[ $confirm != [yY] ]]; then
     exit 0
 fi
 
-# Add Banzai Cloud Helm repository
-print_step "Adding Banzai Cloud Helm repository..."
-helm repo add banzaicloud-stable https://kubernetes-charts.banzaicloud.com
-helm repo update
-print_success "Banzai Cloud Helm repo added"
-
-# Create namespaces
-print_step "Creating namespaces..."
-kubectl create namespace vault-system --dry-run=client -o yaml | kubectl apply -f -
-kubectl create namespace vault --dry-run=client -o yaml | kubectl apply -f -
-
-# Install Vault Operator
-print_step "Installing Vault Operator..."
-helm upgrade --install vault-operator banzaicloud-stable/vault-operator \
-  --namespace vault-system \
-  --wait \
+# Install Vault Operator using new OCI registry
+print_step "Installing Vault Operator from OCI registry..."
+helm upgrade --install --wait vault-operator \
+  oci://ghcr.io/bank-vaults/helm-charts/vault-operator \
   --timeout=5m
 
 print_success "Vault Operator installed"
 
-# Create Bank-Vaults configuration (WITHOUT secrets)
-print_step "Creating Bank-Vaults configuration..."
+# Create RBAC resources
+print_step "Creating RBAC resources..."
+kubectl kustomize https://github.com/bank-vaults/vault-operator/deploy/rbac | kubectl apply -f -
 
+print_success "RBAC resources created"
+
+# Choose deployment mode
+if [[ $HA_MODE == [yY] ]]; then
+    print_step "Creating production HA Vault configuration with Raft..."
+    VAULT_SIZE=3
+    STORAGE_TYPE="raft"
+else
+    print_step "Creating single-node Vault configuration..."
+    VAULT_SIZE=1
+    STORAGE_TYPE="file"
+fi
+
+# Create Bank-Vaults configuration (WITHOUT secrets)
+print_step "Creating Bank-Vaults Vault CR..."
+
+if [[ $HA_MODE == [yY] ]]; then
+# HA Raft Configuration
 cat > vault-instance.yaml << EOF
 apiVersion: "vault.banzaicloud.com/v1alpha1"
 kind: "Vault"
 metadata:
   name: "vault"
-  namespace: "vault"
 spec:
-  size: 1
-  image: vault:1.15.2
-  bankVaultsImage: banzaicloud/bank-vaults:latest
+  size: ${VAULT_SIZE}
+  image: hashicorp/vault:1.17.2
+  bankVaultsImage: ghcr.io/bank-vaults/bank-vaults:latest
+  
+  # Service Account
+  serviceAccount: vault
+  serviceType: ClusterIP
   
   # Automatic initialization and unsealing
   unsealConfig:
+    options:
+      preFlightChecks: true
+      storeRootToken: true
+      secretShares: 5
+      secretThreshold: 3
     kubernetes:
-      secretNamespace: vault
+      secretNamespace: default
   
-  # Vault configuration
+  # CA certificate distribution
+  caNamespaces:
+    - "default"
+    - "vault-infra"
+  
+  # Vault configuration with Raft
   config:
     storage:
-      file:
+      raft:
         path: "/vault/file"
     listener:
       tcp:
         address: "0.0.0.0:8200"
-        tls_disable: true
+        tls_cert_file: /vault/tls/server.crt
+        tls_key_file: /vault/tls/server.key
+    api_addr: "https://vault.default:8200"
+    cluster_addr: "https://\${.Env.POD_NAME}:8201"
     ui: true
-    api_addr: "http://vault:8200"
-    cluster_addr: "http://vault:8201"
   
   # Ingress configuration
   ingress:
@@ -157,8 +184,125 @@ spec:
         - $VAULT_DOMAIN
         secretName: vault-tls
   
-  # Service configuration
+  # Resources
+  resources:
+    vault:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+  
+  # Persistent storage for Raft
+  volumeClaimTemplates:
+    - metadata:
+        name: vault-file
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+  
+  # External configuration (NO SECRETS HERE)
+  externalConfig:
+    policies:
+      - name: app-policy
+        rules: |
+          path "secret/data/*" {
+            capabilities = ["create", "read", "update", "delete", "list"]
+          }
+          path "secret/metadata/*" {
+            capabilities = ["list"]
+          }
+    
+    auth:
+      - type: kubernetes
+        roles:
+          - name: default
+            bound_service_account_names: ["default", "vault", "vault-secrets-webhook"]
+            bound_service_account_namespaces: ["default", "vault", "vault-infra"]
+            policies: ["app-policy"]
+            ttl: 1h
+    
+    secrets:
+      - path: secret
+        type: kv
+        description: Application secrets
+        options:
+          version: 2
+    
+    # NO startupSecrets - secrets will be added manually after deployment
+EOF
+else
+# Single-node file storage Configuration  
+cat > vault-instance.yaml << EOF
+apiVersion: "vault.banzaicloud.com/v1alpha1"
+kind: "Vault"
+metadata:
+  name: "vault"
+spec:
+  size: 1
+  image: hashicorp/vault:1.17.2
+  bankVaultsImage: ghcr.io/bank-vaults/bank-vaults:latest
+  
+  # Service Account
+  serviceAccount: vault
   serviceType: ClusterIP
+  
+  # Automatic initialization and unsealing
+  unsealConfig:
+    options:
+      preFlightChecks: true
+      storeRootToken: true
+      secretShares: 5
+      secretThreshold: 3
+    kubernetes:
+      secretNamespace: default
+  
+  # CA certificate distribution
+  caNamespaces:
+    - "default"
+    - "vault-infra"
+  
+  # Vault configuration with File storage
+  config:
+    storage:
+      file:
+        path: "/vault/file"
+    listener:
+      tcp:
+        address: "0.0.0.0:8200"
+        tls_cert_file: /vault/tls/server.crt
+        tls_key_file: /vault/tls/server.key
+    ui: true
+    api_addr: "https://vault.default:8200"
+  
+  # Ingress configuration
+  ingress:
+    enabled: true
+    annotations:
+      kubernetes.io/ingress.class: "traefik"
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      traefik.ingress.kubernetes.io/ssl-redirect: "true"
+    spec:
+      ingressClassName: traefik
+      rules:
+      - host: $VAULT_DOMAIN
+        http:
+          paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vault
+                port:
+                  number: 8200
+      tls:
+      - hosts:
+        - $VAULT_DOMAIN
+        secretName: vault-tls
   
   # Resources
   resources:
@@ -187,7 +331,7 @@ spec:
       - name: app-policy
         rules: |
           path "secret/data/*" {
-            capabilities = ["read"]
+            capabilities = ["create", "read", "update", "delete", "list"]
           }
           path "secret/metadata/*" {
             capabilities = ["list"]
@@ -196,9 +340,9 @@ spec:
     auth:
       - type: kubernetes
         roles:
-          - name: app-role
-            bound_service_account_names: ["default", "vault"]
-            bound_service_account_namespaces: ["default", "vault", "harbor"]
+          - name: default
+            bound_service_account_names: ["default", "vault", "vault-secrets-webhook"]
+            bound_service_account_namespaces: ["default", "vault", "vault-infra"]
             policies: ["app-policy"]
             ttl: 1h
     
@@ -211,8 +355,9 @@ spec:
     
     # NO startupSecrets - secrets will be added manually after deployment
 EOF
+fi
 
-print_success "Bank-Vaults configuration created (without secrets)"
+print_success "Bank-Vaults Vault CR created (without secrets)"
 
 # Deploy Vault instance
 print_step "Deploying Vault instance..."
@@ -222,9 +367,20 @@ print_success "Vault instance deployed"
 
 # Wait for Vault to be ready
 print_step "Waiting for Vault to be ready..."
-kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=vault -n vault --timeout=600s
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=vault --timeout=600s
 
 print_success "Vault is ready"
+
+# Install Vault Secrets Webhook
+print_step "Installing Vault Secrets Webhook..."
+kubectl create namespace vault-infra --dry-run=client -o yaml | kubectl apply -f -
+kubectl label namespace vault-infra name=vault-infra
+
+helm upgrade --install --wait vault-secrets-webhook \
+  oci://ghcr.io/bank-vaults/helm-charts/vault-secrets-webhook \
+  --namespace vault-infra
+
+print_success "Vault Secrets Webhook installed"
 
 # Get Vault root token
 print_step "Retrieving Vault root token..."
@@ -232,7 +388,7 @@ sleep 30
 
 ROOT_TOKEN=""
 for i in {1..30}; do
-    ROOT_TOKEN=$(kubectl get secret vault-unseal-keys -n vault -o jsonpath='{.data.vault-root}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    ROOT_TOKEN=$(kubectl get secret vault-unseal-keys -o jsonpath='{.data.vault-root}' 2>/dev/null | base64 -d 2>/dev/null || true)
     if [ ! -z "$ROOT_TOKEN" ]; then
         break
     fi
@@ -241,7 +397,7 @@ for i in {1..30}; do
 done
 
 if [ -z "$ROOT_TOKEN" ]; then
-    print_warning "Could not retrieve root token automatically. Check 'kubectl get secrets -n vault'"
+    print_warning "Could not retrieve root token automatically. Check 'kubectl get secrets vault-unseal-keys'"
     ROOT_TOKEN="[Check vault-unseal-keys secret]"
 else
     print_success "Root token retrieved"
@@ -253,15 +409,18 @@ print_step "Creating secure secret setup script..."
 cat > setup-secrets.sh << 'EOF'
 #!/bin/bash
 
-# Secure Secret Setup for Bank-Vaults
+# Secure Secret Setup for HashiCorp Vault via Bank-Vaults
 set -e
 
-VAULT_POD=$(kubectl get pods -n vault -l app.kubernetes.io/name=vault -o jsonpath='{.items[0].metadata.name}')
+VAULT_POD=$(kubectl get pods -l app.kubernetes.io/name=vault -o jsonpath='{.items[0].metadata.name}')
 
 if [ -z "$VAULT_POD" ]; then
     echo "❌ Could not find Vault pod"
     exit 1
 fi
+
+# Get root token
+export VAULT_TOKEN=$(kubectl get secret vault-unseal-keys -o jsonpath='{.data.vault-root}' | base64 -d)
 
 echo "🔐 Setting up secrets securely..."
 echo "Note: Passwords will not be shown on screen"
@@ -276,7 +435,7 @@ echo ""
 read -s -p "Harbor registry password: " HARBOR_REG_PASS
 echo ""
 
-kubectl exec -n vault $VAULT_POD -- vault kv put secret/harbor \
+kubectl exec $VAULT_POD -- env VAULT_TOKEN="$VAULT_TOKEN" vault kv put secret/harbor \
     admin_username="$HARBOR_USER" \
     admin_password="$HARBOR_PASS" \
     registry_password="$HARBOR_REG_PASS" \
@@ -295,7 +454,7 @@ DB_HOST=${DB_HOST:-postgres}
 read -p "Database name [registry]: " DB_NAME
 DB_NAME=${DB_NAME:-registry}
 
-kubectl exec -n vault $VAULT_POD -- vault kv put secret/database \
+kubectl exec $VAULT_POD -- env VAULT_TOKEN="$VAULT_TOKEN" vault kv put secret/database \
     username="$DB_USER" \
     password="$DB_PASS" \
     host="$DB_HOST" \
@@ -312,7 +471,7 @@ REDIS_URL=${REDIS_URL:-redis://harbor-redis:6379/0}
 read -s -p "Redis password (leave empty if none): " REDIS_PASS
 echo ""
 
-kubectl exec -n vault $VAULT_POD -- vault kv put secret/redis \
+kubectl exec $VAULT_POD -- env VAULT_TOKEN="$VAULT_TOKEN" vault kv put secret/redis \
     url="$REDIS_URL" \
     password="$REDIS_PASS"
 
@@ -333,7 +492,7 @@ echo ""
 read -p "Environment [production]: " APP_ENV
 APP_ENV=${APP_ENV:-production}
 
-kubectl exec -n vault $VAULT_POD -- vault kv put secret/app \
+kubectl exec $VAULT_POD -- env VAULT_TOKEN="$VAULT_TOKEN" vault kv put secret/app \
     jwt_secret="$JWT_SECRET" \
     api_key="$API_KEY" \
     environment="$APP_ENV"
@@ -347,6 +506,7 @@ unset HARBOR_USER HARBOR_PASS HARBOR_REG_PASS
 unset DB_USER DB_PASS DB_HOST DB_NAME
 unset REDIS_URL REDIS_PASS
 unset JWT_SECRET API_KEY APP_ENV
+unset VAULT_TOKEN
 
 echo "🔍 Verify secrets with: ./vault-helper.sh list"
 EOF
@@ -361,12 +521,15 @@ cat > vault-helper.sh << 'EOF'
 #!/bin/bash
 
 # Bank-Vaults Helper Script
-VAULT_POD=$(kubectl get pods -n vault -l app.kubernetes.io/name=vault -o jsonpath='{.items[0].metadata.name}')
+VAULT_POD=$(kubectl get pods -l app.kubernetes.io/name=vault -o jsonpath='{.items[0].metadata.name}')
 
 if [ -z "$VAULT_POD" ]; then
     echo "❌ Could not find Vault pod"
     exit 1
 fi
+
+# Get root token
+export VAULT_TOKEN=$(kubectl get secret vault-unseal-keys -o jsonpath='{.data.vault-root}' | base64 -d)
 
 case "$1" in
     "read"|"get")
@@ -375,7 +538,7 @@ case "$1" in
             echo "Example: $0 read secret/harbor"
             exit 1
         fi
-        kubectl exec -n vault $VAULT_POD -- vault kv get -format=json $2
+        kubectl exec $VAULT_POD -- env VAULT_TOKEN="$VAULT_TOKEN" vault kv get -format=json $2
         ;;
     "write"|"put")
         if [ -z "$2" ] || [ -z "$3" ]; then
@@ -383,13 +546,13 @@ case "$1" in
             echo "Example: $0 write secret/harbor admin_password=newpass"
             exit 1
         fi
-        kubectl exec -n vault $VAULT_POD -- vault kv put $2 ${@:3}
+        kubectl exec $VAULT_POD -- env VAULT_TOKEN="$VAULT_TOKEN" vault kv put $2 ${@:3}
         ;;
     "list"|"ls")
         if [ -z "$2" ]; then
-            kubectl exec -n vault $VAULT_POD -- vault kv list secret/
+            kubectl exec $VAULT_POD -- env VAULT_TOKEN="$VAULT_TOKEN" vault kv list secret/
         else
-            kubectl exec -n vault $VAULT_POD -- vault kv list $2
+            kubectl exec $VAULT_POD -- env VAULT_TOKEN="$VAULT_TOKEN" vault kv list $2
         fi
         ;;
     "delete"|"rm")
@@ -397,13 +560,13 @@ case "$1" in
             echo "Usage: $0 delete <secret-path>"
             exit 1
         fi
-        kubectl exec -n vault $VAULT_POD -- vault kv delete $2
+        kubectl exec $VAULT_POD -- env VAULT_TOKEN="$VAULT_TOKEN" vault kv delete $2
         ;;
     "status")
-        kubectl exec -n vault $VAULT_POD -- vault status
+        kubectl exec $VAULT_POD -- env VAULT_TOKEN="$VAULT_TOKEN" vault status
         ;;
     "token")
-        ROOT_TOKEN=$(kubectl get secret vault-unseal-keys -n vault -o jsonpath='{.data.vault-root}' | base64 -d 2>/dev/null || echo "")
+        ROOT_TOKEN=$(kubectl get secret vault-unseal-keys -o jsonpath='{.data.vault-root}' | base64 -d 2>/dev/null || echo "")
         if [ ! -z "$ROOT_TOKEN" ]; then
             echo "Root token: $ROOT_TOKEN"
         else
@@ -432,14 +595,14 @@ EOF
 chmod +x vault-helper.sh
 print_success "Helper script created: vault-helper.sh"
 
-# Create cleanup script
 cat > vault-cleanup.sh << 'EOF'
 #!/bin/bash
 echo "🧹 Cleaning up Bank-Vaults deployment..."
-kubectl delete vault vault -n vault 2>/dev/null || true
-kubectl delete namespace vault 2>/dev/null || true
-helm uninstall vault-operator -n vault-system 2>/dev/null || true
-kubectl delete namespace vault-system 2>/dev/null || true
+kubectl delete vault vault 2>/dev/null || true
+kubectl kustomize https://github.com/bank-vaults/vault-operator/deploy/rbac | kubectl delete -f - 2>/dev/null || true
+helm uninstall vault-operator 2>/dev/null || true
+helm uninstall vault-secrets-webhook -n vault-infra 2>/dev/null || true
+kubectl delete namespace vault-infra 2>/dev/null || true
 rm -f vault-instance.yaml setup-secrets.sh vault-helper.sh vault-info.txt
 echo "✅ Bank-Vaults cleanup complete!"
 EOF
@@ -453,8 +616,11 @@ echo ""
 echo "🔐 Vault Information:"
 echo "  Vault URL:     https://$VAULT_DOMAIN"
 echo "  Root Token:    $ROOT_TOKEN"
-echo "  Namespace:     vault"
+echo "  Storage:       $STORAGE_TYPE"
+echo "  Instances:     $VAULT_SIZE"
 echo "  Auto-unsealing: ✅ Enabled"
+echo "  Auto-init: ✅ Enabled"
+echo "  Webhook: ✅ Installed"
 echo ""
 echo "🔒 NEXT STEP - Add Your Secrets:"
 echo "  Run: ./setup-secrets.sh"
@@ -484,12 +650,15 @@ Bank-Vaults Deployment Information
 
 Vault URL: https://$VAULT_DOMAIN
 Root Token: $ROOT_TOKEN
-Namespace: vault
+Storage Backend: $STORAGE_TYPE
+Instances: $VAULT_SIZE
 
 Security Features:
+- Bank-Vaults operator ✅
 - Automatic initialization ✅
 - Automatic unsealing ✅  
 - Kubernetes authentication ✅
+- Vault Secrets Webhook ✅
 - No secrets in configuration ✅
 - Ingress with TLS ✅
 
@@ -499,6 +668,9 @@ Setup Scripts:
 - ./vault-cleanup.sh     - Remove everything
 
 Next: Run ./setup-secrets.sh to add your actual secrets
+
+Repository: Bank-Vaults now at bank-vaults.dev
+Charts: oci://ghcr.io/bank-vaults/helm-charts/
 EOF
 
 print_success "Bank-Vaults setup completed!"
