@@ -228,6 +228,9 @@ spec:
   size: ${VAULT_SIZE}
   image: hashicorp/vault:1.17.2
   bankVaultsImage: ghcr.io/bank-vaults/bank-vaults:v1.31.3
+
+  tls:
+    disabled: true
   
   # Service Account
   serviceAccount: vault
@@ -341,7 +344,10 @@ metadata:
 spec:
   size: 1
   image: hashicorp/vault:1.17.2
-  bankVaultsImage: ghcr.io/bank-vaults/bank-vaults:v1.21.0
+  bankVaultsImage: ghcr.io/bank-vaults/bank-vaults:v1.31.3
+
+  
+
   
   # Service Account
   serviceAccount: vault
@@ -365,8 +371,7 @@ spec:
     listener:
       tcp:
         address: "0.0.0.0:8200"
-        tls_cert_file: /vault/tls/server.crt
-        tls_key_file: /vault/tls/server.key
+        tls_disable: true
     ui: true
     api_addr: "https://vault.default:8200"
   
