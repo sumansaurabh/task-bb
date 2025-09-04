@@ -10,7 +10,7 @@ metadata:
     traefik.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
   rules:
-  - host: robocode.bareflux.co
+  - host: robocoder.bareflux.co
     http:
       paths:
       - path: /
@@ -22,5 +22,5 @@ spec:
               number: 80
   tls:
   - hosts:
-    - robocode.bareflux.co
+    - robocoder.bareflux.co
     secretName: robocode-tls
