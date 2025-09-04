@@ -108,7 +108,6 @@ expose:
     annotations:
       cert-manager.io/cluster-issuer: "letsencrypt-prod"
       traefik.ingress.kubernetes.io/ssl-redirect: "true"
-      traefik.ingress.kubernetes.io/router.middlewares: "default-harbor-timeout@kubernetescrd"
 
 externalURL: https://$HARBOR_URL
 
