@@ -79,13 +79,20 @@ spec:
     metadata:
       labels:
         app: nodejs-app
+      annotations:
+        vault.security.banzaicloud.io/vault-addr: "http://vault.default:8200"
+        vault.security.banzaicloud.io/vault-role: "default"
+        vault.security.banzaicloud.io/vault-skip-verify: "true"   # remove if you have valid TLS
+        vault.security.banzaicloud.io/vault-env-injection: "true"
+        vault.security.banzaicloud.io/vault-path: "kubernetes"
+        vault.security.banzaicloud.io/vault-ignore-missing-secrets: "true"
     spec:
       serviceAccountName: nodejs-service-account
       imagePullSecrets:
       - name: harbor-registry-secret
       containers:
       - name: nodejs-app
-        image: harbor.bareflux.co/vibe-coding/vibe-coding-platform:optimisation-safari-focus
+        image: harbor.bareflux.co/vibe-coding/vibe-coding-platform@sha256:31535f8233f7e7536dc075b70f3329a9eafd621b810b5e3fdfb5dfb716494dc2
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
@@ -105,21 +112,54 @@ spec:
             fieldRef:
               fieldPath: metadata.name
         # Private environment variables from secrets
-        - name: DATABASE_URL
-          valueFrom:
-            secretKeyRef:
-              name: app-env-secrets
-              key: DATABASE_URL
-        - name: API_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: app-env-secrets
-              key: API_SECRET
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: app-env-secrets
-              key: JWT_SECRET
+        - name: GITHUB_CLIENT_ID
+          value: vault:secret/data/app#GITHUB_CLIENT_ID
+        - name: GITHUB_CLIENT_SECRET
+          value: vault:secret/data/app#GITHUB_CLIENT_SECRET
+        - name: GITHUB_DEPLOY_TOKEN
+          value: vault:secret/data/app#GITHUB_DEPLOY_TOKEN
+        - name: GITHUB_DEPLOY_USERNAME
+          value: vault:secret/data/app#GITHUB_DEPLOY_USERNAME
+        - name: GOOGLE_CLIENT_ID
+          value: vault:secret/data/app#GOOGLE_CLIENT_ID
+        - name: GOOGLE_CLIENT_SECRET
+          value: vault:secret/data/app#GOOGLE_CLIENT_SECRET
+        - name: LITELLM_BASE_URL
+          value: vault:secret/data/app#LITELLM_BASE_URL
+        - name: MONGODB_URI
+          value: vault:secret/data/app#MONGODB_URI
+        - name: NEXTAUTH_SECRET
+          value: vault:secret/data/app#NEXTAUTH_SECRET
+        - name: NEXTAUTH_URL
+          value: vault:secret/data/app#NEXTAUTH_URL
+        - name: OPENAI_API_KEY
+          value: vault:secret/data/app#OPENAI_API_KEY
+        - name: STRIPE_SECRET_KEY
+          value: vault:secret/data/app#STRIPE_SECRET_KEY
+        - name: VERCEL_DEPLOY_TOKEN
+          value: vault:secret/data/app#VERCEL_DEPLOY_TOKEN
+        - name: VERCEL_OIDC_TOKEN
+          value: vault:secret/data/app#VERCEL_OIDC_TOKEN
+        - name: VERCEL_TEAM_ID
+          value: vault:secret/data/app#VERCEL_TEAM_ID
+        - name: VERCEL_PROJECT_ID
+          value: vault:secret/data/app#VERCEL_PROJECT_ID
+        - name: VERCEL_TOKEN
+          value: vault:secret/data/app#VERCEL_TOKEN
+        - name: KV_USER_URL
+          value: vault:secret/data/app#KV_USER_URL
+        - name: KV_USER_TOKEN
+          value: vault:secret/data/app#KV_USER_TOKEN
+        - name: KV_RATE_URL
+          value: vault:secret/data/app#KV_RATE_URL
+        - name: KV_RATE_TOKEN
+          value: vault:secret/data/app#KV_RATE_TOKEN
+        - name: PAYMENT_SERVER
+          value: vault:secret/data/app#PAYMENT_SERVER
+        - name: E2B_API_KEY
+          value: vault:secret/data/app#E2B_API_KEY
+        - name: E2B_SANDBOX_TEMPLATE_ID
+          value: vault:secret/data/app#E2B_SANDBOX_TEMPLATE_ID
         resources:
           requests:
             memory: "128Mi"
