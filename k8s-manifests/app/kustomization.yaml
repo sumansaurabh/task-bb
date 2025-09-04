@@ -5,5 +5,5 @@ resources:
 - deployment.yaml
 
 images:
-- name: ghcr.io/sumansaurabh/task-bb/backend
-  newTag: latest  # This will be overridden by ArgoCD
+- name: harbor.bareflux.co/vibe-coding/vibe-coding-platform
+  newTag: latest   # ArgoCD can override this with digest/tag
