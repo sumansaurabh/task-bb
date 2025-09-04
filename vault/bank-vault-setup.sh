@@ -161,6 +161,7 @@ spec:
   
   # Ingress configuration
   ingress:
+    enabled: true
     annotations:
       kubernetes.io/ingress.class: "traefik"
       cert-manager.io/cluster-issuer: "letsencrypt-prod"
